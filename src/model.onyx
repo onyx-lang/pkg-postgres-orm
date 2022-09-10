@@ -57,6 +57,7 @@ ORMContext.add :: (ctx: ^ORMContext, data: ^$T) -> ^T {
 
     cmd := string.as_str(insert_command);
     res := ctx->exec_log(cmd);
+    defer res->clear();
 
     if res->status() == .Tuples_Ok {
         postgres.result_to_struct(^res, 0, T, ~~ data, ctx.allocator);

@@ -336,6 +336,8 @@ create_table_for_model :: (ctx: ^ORMContext, model: ^ORMModel) -> bool {
     io.write(^create_writer, ");");
 
     res := ctx->exec_log(string.as_str(create_command));
+    defer res->clear();
+    
     return res->status() == .Command_Ok;
 }
 

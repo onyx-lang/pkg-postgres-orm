@@ -192,6 +192,7 @@ QueryBuilder.delete :: (qb: ^QueryBuilder) -> bool {
     query := build_delete_query_string(qb);
 
     res := qb.ormctx->exec_log(query);
+    res->clear();
 
     qb->free();
     return res->status() == .Command_Ok;
@@ -214,6 +215,7 @@ QueryBuilder.update :: (qb: ^QueryBuilder, updates: [] ColumnUpdate) -> bool {
 
     query := build_update_query_string(qb, updates);
     res := qb.ormctx->exec_log(query);
+    defer res->clear();
 
     qb->free();
     return res->status() == .Command_Ok;
