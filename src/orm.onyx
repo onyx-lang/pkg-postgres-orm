@@ -1,0 +1,400 @@
+package postgres.orm
+
+use core
+use core.alloc.arena {
+    ArenaState,
+    make_arena :: make,
+    arena_clear :: clear
+}
+use runtime.info {
+    size_of, 
+    get_type_info,
+    Type_Info_Pointer,
+    Type_Info_Struct,
+    Type_Info_Slice
+}
+
+
+#doc """
+    This structure contains all information about the ORM
+    that is being used in the program. There will likely only
+    ever be one instance of this structure, and it will be in
+    the global scope because it will be used everywhere.
+
+    Normally, you will not create this structure directly.
+    Instead, you will use postgres.orm.create() to provide
+    the connection details to the Postgres server. After
+    creating the context, you will likely want to call
+    auto_migrate() to populate the database with tables if
+    they do not exist.
+"""
+ORMContext :: struct {
+    allocator: Allocator;
+
+    conn: postgres.Connection;
+
+    // All known models types and information
+    models: Map(type_expr, ORMModel);
+
+    // All active instances of models
+    instances: Map(ORMInstanceKey, rawptr);
+
+    instance_arena: ArenaState;
+    instance_allocator: Allocator;
+
+    log_sql_statements := false;
+}
+
+#doc "Represents a model known by ORM."
+ORMModel :: struct {
+    table_name: str;
+    schema_name: str;
+
+    cols: [] ORMCol;
+    primary_col: i32;
+
+    relationships: [] ORMRelation;
+
+    type_info: ^runtime.info.Type_Info_Struct;
+}
+
+#doc "Represents a single column of a model."
+ORMCol :: struct {
+    name: str;
+    type: str;
+    onyx_type: type_expr;
+    
+    onyx_default: rawptr;
+    default_expr: str;
+
+    primary_key: bool;
+    not_null: bool;
+    unique: bool;
+
+    constraints: [] constraint;
+    
+    member_info: ^runtime.info.Type_Info_Struct.Member;
+
+    has_default :: (use this: ^ORMCol) => onyx_default != null || !string.is_empty(default_expr);
+}
+
+#doc "Represents a relation between models."
+ORMRelation :: struct {
+    relation_type: type_expr;
+    relation_data: rawptr;
+
+    target_type: type_expr;
+
+    member_info: ^runtime.info.Type_Info_Struct.Member;
+} 
+
+
+
+create :: (
+    conn: postgres.Connection,
+    allocator := context.allocator
+    ) -> ^ORMContext {
+    
+    ctx := make(ORMContext, allocator=allocator);
+    ctx.allocator = allocator;
+    ctx.conn = conn;
+    ctx.models = make(typeof ctx.models, allocator);
+    ctx.instances = make(typeof ctx.instances, allocator);
+
+    ctx.instance_arena = make_arena(allocator, 4 * 1024 * 1024); // @Cleanup
+    ctx.instance_allocator = alloc.as_allocator(^ctx.instance_arena);
+
+    return ctx;
+}
+
+
+#inject
+ORMContext.auto_migrate :: (ctx: ^ORMContext) -> bool {
+    preload_user_defined_models(ctx);
+    prepare_models_in_database(ctx);
+
+    return true;
+}
+
+#inject
+ORMContext.flush :: (ctx: ^ORMContext) {
+    ctx.instances->clear();
+    arena_clear(^ctx.instance_arena);
+}
+
+
+#local
+#doc """
+    This procedure looks through all type in the program and finds
+    ones that have been marked as with orm.model. This function then loads
+    information about the models it finds into a cache on the ORMContext
+    for future use.
+"""
+preload_user_defined_models :: (ctx: ^ORMContext) {
+    runtime.info.for_all_types() {
+        if type_info.kind != .Struct {
+            continue;
+        }
+
+        struct_info := cast(^runtime.info.Type_Info_Struct) type_info;
+        tag := array.first(struct_info.tags, #(it.type == postgres.orm.model));
+        if tag == null do continue;
+
+        model_data := cast(^model) tag.data;
+
+        model_valid := true;
+
+        model: ORMModel;
+        model.table_name = model_data.table_name;
+        model.schema_name = model_data.schema_name;
+        model.type_info = struct_info;
+        model.primary_col = -1;
+
+        cols      := make([..] ORMCol, struct_info.members.length, allocator=ctx.allocator);
+        relations := make([..] ORMRelation, 0, allocator=ctx.allocator);
+
+        for^ member: struct_info.members {
+            if process_member_if_relation(member, ^relations) {
+                continue;
+            }
+
+            col: ORMCol;
+            col.name = string.alloc_copy(member.name, allocator=ctx.allocator)
+                    |> string.to_lowercase();
+
+            col.onyx_default = member.default;
+            col.onyx_type = member.type;
+            col.type = onyx_type_to_postgres_type(member.type);
+            col.member_info = member;
+
+            if col.type.length == 0 {
+                printf("[ERROR] '{}' is not a known type for the Postgres ORM.\n", col.onyx_type);
+                model_valid = false;
+                continue;
+            }
+
+            constraints := make([..] constraint, 0, allocator=ctx.allocator);
+            for^ tag: member.tags {
+                if tag.type == type_expr {
+                    t := *cast(^type_expr) tag.data;
+                    if t == unique      do col.unique      = true;
+                    if t == not_null    do col.not_null    = true;
+
+                    if t == primary_key {
+                        col.primary_key = true;
+
+                        if model.primary_col == -1 {
+                            model.primary_col = cols.length;
+
+                        } else {
+                            printf("[ERROR] In model '{}', multiple fields were marked as primary keys.\n", col.onyx_type);
+                            model_valid = false;
+                        }
+                    }
+                }
+
+                if tag.type == constraint {
+                    constraints << *cast(^constraint) tag.data;
+                }
+
+                if tag.type == default {
+                    col.default_expr = (cast(^default) tag.data).expr;
+                }
+            }
+
+            col.constraints = constraints;
+
+            cols << col;
+        }
+
+        model.cols = cols;
+        model.relationships = relations;
+
+        if model.primary_col == -1 {
+            printf("[ERROR] Expected exactly one field marked with '@primary_key'.\n");
+            model_valid = false;
+        }
+
+        if model_valid {
+            ctx.models[type_idx] = model;
+        }
+    }
+}
+
+#local
+process_member_if_relation :: (member, relations) => {
+    is_pointer := false;
+    is_array   := false;
+
+    base_type := void;
+
+    // Skip members that are pointers.
+    // Those are used for relationships.
+    if info := get_type_info(member.type); info.kind == .Pointer {
+        is_pointer = true;
+        base_type = (cast(^Type_Info_Pointer) info).to;
+    }
+
+    // Skip members that are slices of pointers.
+    // Those are used for many relationships.
+    elseif info.kind == .Slice {
+        s_info := cast(^Type_Info_Slice) info;
+
+        if info := get_type_info(s_info.of); info.kind == .Pointer {
+            is_array = true;
+            base_type = (cast(^Type_Info_Pointer) info).to;
+        }
+    }
+
+    if !is_pointer && !is_array do return false;
+
+    if member.tags.count == 0 {
+        printf("[ERROR] Expected relation specifier on member '{}'.\n", member.name);
+        return true;
+    }
+
+    rel := member.tags[0];
+    if !array.contains(.[has_one, has_many, belongs_to, many_to_many], rel.type) {
+        printf("[ERROR] '{}' does not have valid relation specifier.\n", member.name);
+        return true;
+    }
+
+    array.push(relations, .{
+        rel.type, rel.data, base_type, member
+    });
+
+    return true;
+}
+
+#local
+Postgres_Table :: struct {
+    // These are only the columns that
+    // might be used in this library.
+    table_catalog      : str;
+    table_schema       : str;
+    table_name         : str;
+    table_type         : str;
+    is_insertable_into : str;
+    is_typed           : str;
+}
+
+#local
+prepare_models_in_database :: (ctx: ^ORMContext) {
+    existing_tables := ctx->quick_exec(Postgres_Table, "SELECT * FROM information_schema.tables;");
+
+    // If the model does not exist in the database, create it.
+    for^ entry: ctx.models.entries {
+        if !array.contains(existing_tables,
+            #(it.table_name == entry.value.table_name && it.table_schema == entry.value.schema_name)) {
+            
+            if !create_table_for_model(ctx, ^entry.value) {
+                printf("[ERROR] Failed to create table '{}'.\n", entry.value.table_name);
+            }
+        }
+    }
+
+    // @TODO
+    // Add columns if new columns are present.
+}
+
+#local
+create_table_for_model :: (ctx: ^ORMContext, model: ^ORMModel) -> bool {
+    printf("[INFO ] Creating {}.{}\n", model.schema_name, model.table_name);
+
+    create_writer, create_command := io.string_builder();
+    defer delete(create_command);
+
+    io.write(^create_writer, "CREATE TABLE \"{}\".\"{}\" (", model.schema_name, model.table_name);
+
+    for^ col: model.cols {
+        if !#first do io.write(^create_writer, ", ");
+
+        io.write(^create_writer, "{} {}", col.name, col.type);
+
+        if col.onyx_default != null {
+            buffer: [256] u8; 
+            out := conv.format_va(buffer, "{'}", .[.{col.onyx_default, col.onyx_type}]);
+            io.write(^create_writer, " DEFAULT {}", out);
+
+        } elseif !string.is_empty(col.default_expr) {
+            io.write(^create_writer, " DEFAULT {}", col.default_expr);
+        }
+
+        if col.primary_key do io.write(^create_writer, " PRIMARY KEY");
+        if col.unique      do io.write(^create_writer, " UNIQUE");
+        if col.not_null    do io.write(^create_writer, " NOT NULL");
+
+        for col.constraints {
+            if it.name.length > 0 {
+                io.write(^create_writer, " CONSTRAINT \"{}\"", it.name);
+            }
+
+            io.write(^create_writer, " CHECK ({})", it.cond);
+        }
+    } 
+
+    io.write(^create_writer, ");");
+
+    res := ctx->exec_log(string.as_str(create_command));
+    return res->status() == .Command_Ok;
+}
+
+
+#local
+ORMInstanceKey :: struct {
+    model: type_expr;
+    value: str;
+}
+
+#overload
+core.hash.to_u32 :: (key: ORMInstanceKey) => {
+    value_hash := core.hash.to_u32(key.value);
+    model_hash := core.hash.to_u32(key.model);
+
+    return value_hash ^ model_hash;
+}
+
+#operator == (k1, k2: ORMInstanceKey) => {
+    if k1.model != k2.model do return false;
+    return k1.value == k2.value;
+}
+
+#package
+lookup_or_create_instances :: (ctx: ^ORMContext, type: type_expr, res: ^postgres.Result) -> [..] rawptr {
+    // Ensure the type is a known model type.
+    if !(ctx.models->has(type)) do return .{};
+    defer res->clear();
+
+    model := ^ctx.models[type];
+
+    // This is technically a [..] ^type, but I am avoiding
+    // making this a polymorphic procedure, because the body
+    // would be the exact same for every polymorphic version.
+    result := make([..] rawptr, ctx.allocator);
+
+    primary_idx := 0;
+    for res->nfields() {
+        if res.col_nums[it] == model.primary_col {
+            primary_idx = it;
+        }
+    }
+    primary_col := ^model.cols[primary_idx];
+
+    for row: res.rows {
+        primary_key := res->get_value(row, primary_idx);
+        id          := ORMInstanceKey.{type, primary_key};
+
+        instance_pointer := ctx.instances[id];
+        if instance_pointer == null {
+            id.value         = string.alloc_copy(primary_key, ctx.instance_allocator);
+
+            instance_pointer = new(type, ctx.instance_allocator);
+            ctx.instances[id] = instance_pointer;
+        }
+
+        postgres.result_to_struct(res, row, type, ~~ instance_pointer, ctx.instance_allocator);
+        result << instance_pointer;
+    }
+
+    return result;
+}

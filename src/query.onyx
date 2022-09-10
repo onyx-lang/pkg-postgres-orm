@@ -1,0 +1,106 @@
+package postgres.orm
+
+use core
+
+Query :: struct (table_type: type_expr) {
+    builder: ^QueryBuilder;
+}
+
+#inject
+ORMContext.query :: macro (ctx: ^ORMContext, $type: type_expr) -> Query(type) {
+    Query :: Query
+    QueryBuilder :: QueryBuilder
+
+    q: Query(type);
+    q.builder = new(QueryBuilder, allocator=ctx.allocator);
+    q.builder->init(type, ctx);
+    return q;
+}
+
+#inject
+Query.filter :: #match #local {}
+
+#overload
+Query.filter :: macro (q: Query, filter: str) => {
+    q.builder->filter(filter);
+    return q;
+}
+
+#overload
+Query.filter :: macro (q: Query, filter_format: str, values: [] any) => {
+    q.builder->filter(filter_format, values);
+    return q;
+}
+
+// @Cleanup  make this a macro when macros support any
+#overload #precedence 2
+Query.filter :: (q: Query, filter_format: str, values: ..any) => {
+    q.builder->filter(filter_format, values);
+    return q;
+}
+
+
+#inject
+Query.order :: (q: Query, field: str, ord: QueryOrdering) => {
+    q.builder->order(field, ord);
+    return q;
+}
+
+
+#inject
+Query.group :: #match #local {}
+
+#overload
+Query.group :: macro (q: Query, group: str) => {
+    q.builder->group(group);
+    return q;
+}
+
+// @Cleanup
+#overload
+Query.group :: (q: Query, group_format: str, values: .. any) => {
+    q.builder->group(group_format, values);
+    return q;
+}
+
+
+#inject
+Query.limit :: macro (q: Query, limit: u32) => {
+    q.builder.limit = limit;
+    return q;
+}
+
+#inject
+Query.offset :: macro (q: Query, offset: u32) => {
+    q.builder.offset = offset;
+    return q;
+}
+
+
+#inject
+Query.all :: macro (q: Query) -> [] ^q.table_type {
+    return ~~ q.builder->all();
+}
+
+#inject
+Query.first :: macro (q: Query) -> ^q.table_type {
+    return ~~ q.builder->first();
+}
+
+#inject
+Query.find :: (q: Query, key: any) -> ^q.table_type {
+    return ~~ q.builder->find(key);
+}
+
+#inject
+Query.delete :: macro (q: Query) -> bool {
+    return q.builder->delete();
+}
+
+#inject
+Query.update :: (q: Query, field: str, value: any) -> bool {
+    return q.builder->update(field, value);
+}
+
+
+

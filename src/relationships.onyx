@@ -1,0 +1,191 @@
+package postgres.orm
+
+use core
+
+#inject
+ORMContext.load_related :: (ctx: ^ORMContext, obj_: any) {
+    obj := obj_;
+    if !strip_pointer_and_check_model(ctx, ^obj) do return;
+    if obj.data == null do return;
+
+    model := ^ctx.models[obj.type];
+
+    for^ rel: model.relationships {
+        switch rel.relation_type {
+            case has_one      do load_has_one(ctx, obj, model, rel);
+            case belongs_to   do load_belongs_to(ctx, obj, model, rel);
+            case has_many     do load_has_many(ctx, obj, model, rel);
+            case many_to_many do load_many_to_many(ctx, obj, model, rel);
+        }
+    }
+}
+
+
+#local
+load_has_one :: (ctx: ^ORMContext, obj: any, model: ^ORMModel, rel: ^ORMRelation) {
+    has_one_rel := cast(^has_one) rel.relation_data;
+
+    q: QueryBuilder;
+    q->init(rel.target_type, ctx);
+
+    obj_base := cast(^u8) obj.data;
+    key := do {
+        col := model.primary_col; 
+        if !string.is_empty(has_one_rel.local_key) {
+            col = array.find(model.cols, #(it.name == has_one_rel.local_key));
+        }
+        
+        return ^model.cols[col];
+    };
+
+    q->filter("\"{}\"={'d}", any.[
+        .{ ^has_one_rel.foreign_key, str },
+        .{
+            obj_base + key.member_info.offset,
+            key.onyx_type
+        }
+    ]);
+    q->limit(1);
+
+    result := q->first();
+    *cast(^rawptr) (obj_base + rel.member_info.offset) = result;
+}
+
+#local
+load_belongs_to :: (ctx: ^ORMContext, obj: any, model: ^ORMModel, rel: ^ORMRelation) {
+    belongs_to_rel := cast(^belongs_to) rel.relation_data;
+
+    q: QueryBuilder;
+    q->init(rel.target_type, ctx);
+
+    obj_base := cast(^u8) obj.data;
+    key := do {
+        col := array.find(model.cols, #(it.name == belongs_to_rel.local_key));
+        return ^model.cols[col];
+    };
+
+    foreign_key := do {
+        if string.is_empty(belongs_to_rel.foreign_key) {
+            foreign_model := ^ctx.models[rel.target_type];
+            return foreign_model.cols[foreign_model.primary_col].name;
+
+        } else {
+            return belongs_to_rel.foreign_key;
+        }
+    };
+
+    q->filter("\"{}\"={'d}", any.[
+        .{ ^foreign_key, str },
+        .{
+            obj_base + key.member_info.offset,
+            key.onyx_type
+        }
+    ]);
+    q->limit(1);
+
+    result := q->first();
+    *cast(^rawptr) (obj_base + rel.member_info.offset) = result;
+}
+
+#local
+load_has_many :: (ctx: ^ORMContext, obj: any, model: ^ORMModel, rel: ^ORMRelation) {
+    has_many_rel := cast(^has_many) rel.relation_data;
+
+    q: QueryBuilder;
+    q->init(rel.target_type, ctx);
+
+    obj_base := cast(^u8) obj.data;
+    key := do {
+        col := model.primary_col; 
+        if !string.is_empty(has_many_rel.local_key) {
+            col = array.find(model.cols, #(it.name == has_many_rel.local_key));
+        }
+        
+        return ^model.cols[col];
+    };
+
+    q->filter("\"{}\"={'d}", any.[
+        .{ ^has_many_rel.foreign_key, str },
+        .{
+            obj_base + key.member_info.offset,
+            key.onyx_type
+        }
+    ]);
+
+    result := q->all();
+
+    output := cast(^[] rawptr) (obj_base + rel.member_info.offset);
+    *output = make([] rawptr, result.count, ctx.instance_allocator);
+
+    for result.count {
+        output.data[it] = result[it];
+    }
+}
+
+#local
+load_many_to_many :: (ctx: ^ORMContext, obj: any, model: ^ORMModel, rel: ^ORMRelation) {
+    many_to_many_rel := cast(^many_to_many) rel.relation_data;
+
+    model         := ^ctx.models[obj.type];
+    mapping_model := ^ctx.models[many_to_many_rel.mapping_model];
+    obj_base      := cast(^u8) obj.data;
+
+    Map_Wrapper :: struct {
+        id: str;
+    }
+
+    values := do {
+        primary_key := ^model.cols[model.primary_col];
+
+        cmd := conv.format_va("SELECT \"{}\" as id FROM \"{}\".\"{}\" WHERE \"{}\"={'d};", any.[
+            as_any(^many_to_many_rel.result_key),
+            as_any(^mapping_model.schema_name),
+            as_any(^mapping_model.table_name),
+            as_any(^many_to_many_rel.lookup_key),
+            .{
+                obj_base + primary_key.member_info.offset,
+                primary_key.onyx_type
+            }
+        ]);
+
+        return ctx->quick_exec(Map_Wrapper, cmd);
+    };
+    defer delete(^values);
+
+    id_list := do {
+        list_writer, id_list := io.string_builder();
+
+        io.write(^list_writer, "(");
+        for values {
+            if !#first do io.write(^list_writer, ", ");
+            io.write(^list_writer, "{}", it.id);
+        }
+        io.write(^list_writer, ")");
+
+        return id_list;
+    };
+    defer delete(id_list);
+
+    result := do {
+        q: QueryBuilder;
+        q->init(rel.target_type, ctx);
+
+        target_model := ^ctx.models[rel.target_type];
+        q->filter("\"{}\" in {}",
+            target_model.cols[target_model.primary_col].name,
+            string.as_str(id_list));
+
+        q->order(mapping_model.cols[mapping_model.primary_col].name, .ASC);
+
+        return q->all();
+    };
+
+    output := cast(^[] rawptr) (obj_base + rel.member_info.offset);
+    *output = make([] rawptr, result.count, ctx.instance_allocator);
+
+    for result.count {
+        output.data[it] = result[it];
+    }
+
+    as_any :: macro (x: ^$T) => any.{ x, T };
+}

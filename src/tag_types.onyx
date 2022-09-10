@@ -1,0 +1,51 @@
+package postgres.orm
+
+model :: struct {
+    table_name: str;
+
+    schema_name := "public";
+}
+
+primary_key :: #distinct void
+not_null    :: #distinct void
+unique      :: #distinct void
+constraint  :: struct {
+    name: str;
+    cond: str;
+}
+default     :: struct {
+    expr: str;
+}
+
+has_one :: struct {
+    foreign_key: str;
+    local_key:   str = "";
+}
+
+has_many :: struct {
+    foreign_key: str;
+    local_key:   str = "";
+}
+
+belongs_to :: struct {
+    local_key:   str;
+    foreign_key: str = "";
+}
+
+many_to_many :: struct {
+    mapping_model: type_expr;
+    lookup_key:    str;
+    result_key:    str;
+}
+
+/*
+foreign_key :: struct {
+    // Column name in foreign table
+    external_ref: str;
+
+    // Column name on this structure
+    // to match to external column.
+    // Defaults to primary key.
+    local_ref:    str;
+}
+*/

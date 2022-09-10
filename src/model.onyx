@@ -1,0 +1,177 @@
+package postgres.orm
+
+use core
+
+#doc """
+    Adds a new instance of a model the database.
+    'data' should be a *pointer* to a known model type
+    (a structure that was tagged with 'orm.model').
+
+    Sample usage:
+        @orm.model.{"thing"}
+        Thing :: struct {
+            @orm.primary_key id: serial32;
+            name: str;
+        }
+
+        thing := Thing.{ name="demo" };
+        ctx->add(^thing);
+
+        // thing.id is now set here
+        printf("thing.id is {}\n.", thing.id);
+"""
+#inject
+ORMContext.add :: (ctx: ^ORMContext, data: ^$T) -> ^T {
+    if !(ctx.models->has(T)) do return null;
+
+    model   := ^ctx.models[T];
+    columns := get_columns_from_value(model, any.{data, T});
+
+    insert_writer, insert_command := io.string_builder();
+    defer delete(insert_command);
+
+    io.write(^insert_writer, "INSERT INTO \"{}\".\"{}\"",
+        model.schema_name, model.table_name);
+
+    if columns.count > 0 {
+        io.write(^insert_writer, " (");
+
+        for^ columns {
+            if !#first do io.write(^insert_writer, ", ");
+
+            io.write(^insert_writer, "\"{}\"", it.name);
+        }
+
+        io.write(^insert_writer, ") VALUES (");
+
+        for^ columns {
+            if !#first do io.write(^insert_writer, ", ");
+
+            write_escaped_value(ctx, ^insert_writer, it.value);
+        }
+
+        io.write(^insert_writer, ")");
+    }
+
+    io.write(^insert_writer, " RETURNING *;");
+
+    cmd := string.as_str(insert_command);
+    res := ctx->exec_log(cmd);
+
+    if res->status() == .Tuples_Ok {
+        postgres.result_to_struct(^res, 0, T, ~~ data, ctx.allocator);
+        return data;
+    }
+
+    printf("[ERROR] Postgres: {}", res->error_message());
+    return null;
+}
+
+#doc """
+    Updates the data of an instance of a model in the database.
+    Uses the primary key of the model to select which row to change.
+"""
+#inject
+ORMContext.save :: (ctx: ^ORMContext, data_: any) -> bool {
+    data := data_;
+    if !strip_pointer_and_check_model(ctx, ^data) do return false;
+    if data.data == null do return false;
+
+    model   := ^ctx.models[data.type];
+    columns := get_columns_from_value(model, data, skip_primary_key=true);
+    if columns.length == 0 do return true;
+
+    q: QueryBuilder;
+    q->init(data.type, ctx);
+    defer q->free();
+
+    primary_key := ^model.cols[model.primary_col];
+    q->filter("\"{}\"={'d}", any.[
+        .{ ^primary_key.name, str },
+        .{
+            cast(^u8) data.data + primary_key.member_info.offset,
+            primary_key.onyx_type
+        }
+    ]);
+
+    return q->update(columns);
+}
+
+#doc """
+    Deletes an instance of a model from the database.
+    Uses the primary key of the model to select which row to delete.
+"""
+#inject
+ORMContext.delete :: (ctx: ^ORMContext, data_: any) -> bool {
+    data := data_;
+    if !strip_pointer_and_check_model(ctx, ^data) do return false;
+    if data.data == null do return false;
+
+    model       := ^ctx.models[data.type];
+    primary_key := ^model.cols[model.primary_col];
+
+    q: QueryBuilder;
+    q->init(data.type, ctx);
+    defer q->free();
+
+    q->filter("\"{}\"={'d}", any.[
+        .{ ^primary_key.name, str },
+        .{
+            cast(^u8) data.data + primary_key.member_info.offset,
+            primary_key.onyx_type
+        }
+    ]);
+
+    if q->delete() {
+        memory.set(data.data, 0, runtime.info.size_of(data.type));
+        return true;
+
+    } else {
+        return false;
+    }
+}
+
+#inject
+ORMContext.find :: (ctx: ^ORMContext, $T: type_expr, key: any) -> ^T {
+    if !(ctx.models->has(T)) do return null;
+
+    model       := ^ctx.models[T];
+    primary_key := ^model.cols[model.primary_col];
+
+    q: QueryBuilder;
+    q->init(T, ctx);
+    defer q->free();
+
+    q->filter("\"{}\"={'d}", any.[
+        .{ ^primary_key.name, str },
+        key
+    ]);
+    q->limit(1);
+
+    return q->first();
+}
+
+
+#local
+#doc """
+    Return an array of column that should be included when doing an UPDATE or INSERT.
+    The returned array is allocated in the temporary allocator.
+"""
+get_columns_from_value :: (model: ^ORMModel, data: any, skip_primary_key := false) => {
+    cols := make([..] ColumnUpdate, model.cols.length, allocator=context.temp_allocator);
+
+    for^ model.cols {
+        if it.primary_key && skip_primary_key do continue;
+
+        value := any.{ cast(^u8) data.data + it.member_info.offset, it.onyx_type };
+
+        // @TODO Double check this condition because it does not make
+        // complete sense to me right now.
+        if !is_zero_value(value) ||
+            (it.not_null && !(it->has_default())) {
+            cols << .{ it.name, value };
+        }
+    }
+
+    return cols;
+}

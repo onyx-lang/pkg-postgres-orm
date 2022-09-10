@@ -1,0 +1,328 @@
+package postgres.orm
+
+use core
+
+QueryBuilder :: struct {
+    allocator: Allocator;
+
+    ormctx : ^ORMContext;
+    model  : ^ORMModel;
+    table_type : type_expr;
+
+    // The strings in these filters are allocated with
+    // the allocated above. They should always be freed
+    // after the query is done.
+    filters:  [..] str;
+    ordering: [..] struct {field: str; ordering: QueryOrdering};
+    grouping: [..] str;
+
+    query_limit := 0;
+    query_offset := 0;
+
+    valid := false;
+}
+
+#inject
+QueryBuilder.init :: (qb: ^QueryBuilder, type: type_expr, ctx: ^ORMContext) {
+    qb.allocator = ctx.allocator;
+    qb.ormctx = ctx;
+    qb.table_type = type;
+
+    qb.model = ^ctx.models[qb.table_type];
+    if qb.model == null do return;
+
+    qb.valid = true;
+
+    array.init(^qb.filters,  allocator=qb.allocator);
+    array.init(^qb.ordering, allocator=qb.allocator);
+    array.init(^qb.grouping, allocator=qb.allocator);
+}
+
+#inject
+QueryBuilder.free :: (qb: ^QueryBuilder) {
+    for qb.filters {
+        raw_free(qb.allocator, it.data);
+    }
+
+    for qb.grouping {
+        raw_free(qb.allocator, it.data);
+    }
+
+    delete(^qb.filters);
+    delete(^qb.ordering);
+    delete(^qb.grouping);
+}
+
+
+
+#inject
+QueryBuilder.filter :: #match #local {}
+
+#overload
+QueryBuilder.filter :: (qb: ^QueryBuilder, filter: str) => {
+    qb.filters << string.alloc_copy(filter, qb.allocator);
+
+    return qb;
+}
+
+#overload
+QueryBuilder.filter :: (qb: ^QueryBuilder, filter_format: str, values: [] any) => {
+    escape_any_args(qb, values);
+
+    filter := conv.format_va(filter_format, values);
+
+    qb.filters << filter;
+    return qb;
+}
+
+#overload #precedence 2
+QueryBuilder.filter :: (qb: ^QueryBuilder, filter_format: str, va: ..any) => {
+    values := cast([] any) va;
+    return qb->filter(filter_format, values);
+}
+
+
+
+QueryOrdering :: enum {
+    ASC  :: 0;
+    DESC :: 1;
+
+    Ascend :: 0;
+    Descend :: 1;
+}
+
+#inject
+QueryBuilder.order :: #match #local {}
+
+#overload
+QueryBuilder.order :: (qb: ^QueryBuilder, field: str, ord: QueryOrdering) => {
+    qb.ordering << .{ field, ord };
+    return qb;
+}
+
+
+
+#inject
+QueryBuilder.group :: #match #local {}
+
+#overload
+QueryBuilder.group :: (qb: ^QueryBuilder, group: str) => {
+    qb.grouping << string.alloc_copy(group, qb.allocator);
+    return qb;
+}
+
+#overload
+QueryBuilder.group :: (qb: ^QueryBuilder, group_format: str, va: ..any) => {
+    values := cast([] any) va;
+    escape_any_args(qb, values);
+
+    group := conv.format_va(group_format, values);
+
+    qb.grouping << group;
+    return qb;
+}
+
+
+
+#inject
+QueryBuilder.limit :: (qb: ^QueryBuilder, limit: u32) => {
+    qb.query_limit = limit;
+    return qb;
+}
+
+
+#inject
+QueryBuilder.offset :: (qb: ^QueryBuilder, offset: u32) => {
+    qb.query_offset = offset;
+    return qb;
+}
+
+
+#inject
+QueryBuilder.all :: (qb: ^QueryBuilder) -> [] rawptr {
+    if !qb.valid do return .[];
+
+    query := build_select_query_string(qb);
+
+    res := qb.ormctx->exec_log(query);
+    instances := lookup_or_create_instances(qb.ormctx, qb.table_type, ^res);
+    defer delete(^instances);
+
+    qb->free();
+
+    return ~~ array.copy(instances, context.temp_allocator);
+}
+
+#inject
+QueryBuilder.first :: (qb: ^QueryBuilder) -> rawptr {
+    if !qb.valid do return .{};
+
+    qb.query_limit = 1;
+    query := build_select_query_string(qb);
+
+    res := qb.ormctx->exec_log(query);
+    instances := lookup_or_create_instances(qb.ormctx, qb.table_type, ^res);
+    defer if instances.count > 0 do delete(^instances);
+
+    qb->free();
+
+    if instances.count == 0 do return null;
+    return ~~ instances.data[0];
+}
+
+#inject
+QueryBuilder.find :: (qb: ^QueryBuilder, key: any) -> rawptr {
+    if !qb.valid do return .{};
+
+    qb.query_limit = 1;
+
+    model       := ^qb.ormctx.models[qb.table_type];
+    primary_key := ^model.cols[model.primary_col];
+
+    qb->filter("\"{}\"={}", .[ .{ ^primary_key.name, str }, key ]);
+
+    return qb->first();
+}
+
+
+#inject
+QueryBuilder.delete :: (qb: ^QueryBuilder) -> bool {
+    if !qb.valid do return false;
+
+    query := build_delete_query_string(qb);
+
+    res := qb.ormctx->exec_log(query);
+
+    qb->free();
+    return res->status() == .Command_Ok;
+}
+
+#inject
+QueryBuilder.update :: #match #local {}
+
+#overload
+QueryBuilder.update :: (qb: ^QueryBuilder, field: str, value: any) -> bool {
+    return qb->update(.[.{field, value}]);
+}
+
+
+ColumnUpdate :: struct {name: str; value: any;}
+
+#overload
+QueryBuilder.update :: (qb: ^QueryBuilder, updates: [] ColumnUpdate) -> bool {
+    if !qb.valid do return false;
+
+    query := build_update_query_string(qb, updates);
+    res := qb.ormctx->exec_log(query);
+
+    qb->free();
+    return res->status() == .Command_Ok;
+}
+
+
+#package
+build_select_query_string :: (qb: ^QueryBuilder) -> str {
+    select_writer, select_command := io.string_builder();
+    defer delete(select_command);
+
+    io.write(^select_writer, "SELECT * FROM \"{}\".\"{}\"", qb.model.schema_name, qb.model.table_name);
+
+    if qb.filters.length > 0 {
+        io.write(^select_writer, " WHERE ");
+
+        for^ qb.filters {
+            if !#first do io.write(^select_writer, " AND ");
+
+            io.write(^select_writer, *it);
+        }
+    }
+
+    if qb.ordering.length > 0 {
+        io.write(^select_writer, " ORDER BY ");
+
+        for^ qb.ordering {
+            if !#first do io.write(^select_writer, ", ");
+
+            io.write(^select_writer, "{\"} {}", it.field, it.ordering);
+        }
+    }
+
+    if qb.grouping.length > 0 {
+        io.write(^select_writer, " GROUP BY ");
+
+        for^ qb.grouping {
+            if !#first do io.write(^select_writer, ", ");
+
+            io.write(^select_writer, *it);
+        }
+    }
+
+    if qb.query_offset > 0 {
+        io.write(^select_writer, " OFFSET {}", qb.query_offset);
+    }
+
+    if qb.query_limit > 0 {
+        io.write(^select_writer, " LIMIT {}", qb.query_limit);
+    }
+
+    return string.temp_copy(string.as_str(select_command));
+}
+
+#package
+build_delete_query_string :: (qb: ^QueryBuilder) -> str {
+    delete_writer, delete_command := io.string_builder();
+    defer delete(delete_command);
+
+    io.write(^delete_writer, "DELETE FROM \"{}\".\"{}\"", qb.model.schema_name, qb.model.table_name);
+
+    if qb.filters.length > 0 {
+        io.write(^delete_writer, " WHERE ");
+
+        for^ qb.filters {
+            if !#first do io.write(^delete_writer, " AND ");
+
+            io.write(^delete_writer, *it);
+        }
+    }
+
+    return string.temp_copy(string.as_str(delete_command));
+}
+
+#package
+build_update_query_string :: (qb: ^QueryBuilder, updates: [] ColumnUpdate) -> str {
+    if updates.count == 0 do return "";
+
+    update_writer, update_command := io.string_builder();
+    defer delete(update_command);
+
+    io.write(^update_writer, "UPDATE \"{}\".\"{}\" SET ", qb.model.schema_name, qb.model.table_name);
+
+    for^ updates {
+        if !#first do io.write(^update_writer, ", ");
+
+        io.write(^update_writer, "\"{}\"=", it.name);
+        write_escaped_value(qb.ormctx, ^update_writer, it.value);
+    }
+
+    if qb.filters.length > 0 {
+        io.write(^update_writer, " WHERE ");
+
+        for^ qb.filters {
+            if !#first do io.write(^update_writer, " AND ");
+
+            io.write(^update_writer, *it);
+        }
+    }
+
+    return string.temp_copy(string.as_str(update_command));
+}
+
+#package
+escape_any_args :: (qb: ^QueryBuilder, values: [] any) {
+    for^ values {
+        if it.type == str {
+            s := cast(^str) it.data;
+            *s = postgres.escape_str(qb.ormctx.conn, *s, qb.allocator);
+        }
+    }
+}
