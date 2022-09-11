@@ -186,23 +186,27 @@ QueryBuilder.find :: (qb: ^QueryBuilder, key: any) -> rawptr {
 
 
 #inject
-QueryBuilder.delete :: (qb: ^QueryBuilder) -> bool {
-    if !qb.valid do return false;
+QueryBuilder.delete :: (qb: ^QueryBuilder) -> i32 {
+    if !qb.valid do return -1;
 
     query := build_delete_query_string(qb);
-
     res := qb.ormctx->exec_log(query);
-    res->clear();
 
-    qb->free();
-    return res->status() == .Command_Ok;
+    defer {
+        qb->free();
+        res->clear();
+    }
+
+    if res->status() != .Tuples_Ok do return -1;
+
+    return res.rows;
 }
 
 #inject
 QueryBuilder.update :: #match #local {}
 
 #overload
-QueryBuilder.update :: (qb: ^QueryBuilder, field: str, value: any) -> bool {
+QueryBuilder.update :: (qb: ^QueryBuilder, field: str, value: any) -> i32 {
     return qb->update(.[.{field, value}]);
 }
 
@@ -210,15 +214,20 @@ QueryBuilder.update :: (qb: ^QueryBuilder, field: str, value: any) -> bool {
 ColumnUpdate :: struct {name: str; value: any;}
 
 #overload
-QueryBuilder.update :: (qb: ^QueryBuilder, updates: [] ColumnUpdate) -> bool {
-    if !qb.valid do return false;
+QueryBuilder.update :: (qb: ^QueryBuilder, updates: [] ColumnUpdate) -> i32 {
+    if !qb.valid do return -1;
 
     query := build_update_query_string(qb, updates);
     res := qb.ormctx->exec_log(query);
-    defer res->clear();
 
-    qb->free();
-    return res->status() == .Command_Ok;
+    defer {
+        qb->free();
+        res->clear();
+    }
+
+    if res->status() != .Tuples_Ok do return -1;
+
+    return res.rows;
 }
 
 
@@ -287,6 +296,9 @@ build_delete_query_string :: (qb: ^QueryBuilder) -> str {
         }
     }
 
+    io.write(^delete_writer, " RETURNING \"{}\"",
+        qb.model.cols[qb.model.primary_col].name);
+
     return string.temp_copy(string.as_str(delete_command));
 }
 
@@ -315,6 +327,9 @@ build_update_query_string :: (qb: ^QueryBuilder, updates: [] ColumnUpdate) -> st
             io.write(^update_writer, *it);
         }
     }
+
+    io.write(^update_writer, " RETURNING \"{}\"",
+        qb.model.cols[qb.model.primary_col].name);
 
     return string.temp_copy(string.as_str(update_command));
 }

@@ -112,12 +112,12 @@ Query.find :: (q: Query, key: any) -> ^q.table_type {
 }
 
 #inject
-Query.delete :: (q: Query) -> bool {
+Query.delete :: (q: Query) -> i32 {
     return q.builder->delete();
 }
 
 #inject
-Query.update :: (q: Query, field: str, value: any) -> bool {
+Query.update :: (q: Query, field: str, value: any) -> i32 {
     return q.builder->update(field, value);
 }
 

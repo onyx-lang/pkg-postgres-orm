@@ -95,7 +95,7 @@ ORMContext.save :: (ctx: ^ORMContext, data_: any) -> bool {
         }
     ]);
 
-    return q->update(columns);
+    return q->update(columns) > 0;
 }
 
 #doc """
@@ -123,7 +123,7 @@ ORMContext.delete :: (ctx: ^ORMContext, data_: any) -> bool {
         }
     ]);
 
-    if q->delete() {
+    if q->delete() > 0 {
         memory.set(data.data, 0, runtime.info.size_of(data.type));
         return true;
 
