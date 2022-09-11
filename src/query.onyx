@@ -2,6 +2,25 @@ package postgres.orm
 
 use core
 
+// @Cleanup
+// There are many procedures in this file that should be made
+// into macros; however, because of the current macro rules,
+// the procedures behave incorrectly.
+//
+// To describe the problem briefly, macro parameters are currently
+// achieved using symbol substitution for an expression. This
+// presents a problem when the expression is not a simple local variable.
+// When the symbol is expanded, the whole expression is placed again,
+// meaning it will be evaluated every time it is used.
+//
+// This is a problem for this code, because the query parameter (q) is
+// usually given as a complicated expression involving other macro
+// expansions.
+//
+// When this compiler bug (or feature?) is fixed, this code should be
+// made to use macros.
+//
+
 Query :: struct (table_type: type_expr) {
     builder: ^QueryBuilder;
 }
@@ -21,13 +40,13 @@ ORMContext.query :: macro (ctx: ^ORMContext, $type: type_expr) -> Query(type) {
 Query.filter :: #match #local {}
 
 #overload
-Query.filter :: macro (q: Query, filter: str) => {
+Query.filter :: (q: Query, filter: str) => {
     q.builder->filter(filter);
     return q;
 }
 
 #overload
-Query.filter :: macro (q: Query, filter_format: str, values: [] any) => {
+Query.filter :: (q: Query, filter_format: str, values: [] any) => {
     q.builder->filter(filter_format, values);
     return q;
 }
@@ -51,7 +70,7 @@ Query.order :: (q: Query, field: str, ord: QueryOrdering) => {
 Query.group :: #match #local {}
 
 #overload
-Query.group :: macro (q: Query, group: str) => {
+Query.group :: (q: Query, group: str) => {
     q.builder->group(group);
     return q;
 }
@@ -78,12 +97,12 @@ Query.offset :: macro (q: Query, offset: u32) => {
 
 
 #inject
-Query.all :: macro (q: Query) -> [] ^q.table_type {
+Query.all :: (q: Query) -> [] ^q.table_type {
     return ~~ q.builder->all();
 }
 
 #inject
-Query.first :: macro (q: Query) -> ^q.table_type {
+Query.first :: (q: Query) -> ^q.table_type {
     return ~~ q.builder->first();
 }
 
@@ -93,7 +112,7 @@ Query.find :: (q: Query, key: any) -> ^q.table_type {
 }
 
 #inject
-Query.delete :: macro (q: Query) -> bool {
+Query.delete :: (q: Query) -> bool {
     return q.builder->delete();
 }
 
