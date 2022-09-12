@@ -84,7 +84,6 @@ ORMContext.save :: (ctx: ^ORMContext, data_: any) -> bool {
 
     q: QueryBuilder;
     q->init(data.type, ctx);
-    defer q->free();
 
     primary_key := ^model.cols[model.primary_col];
     q->filter("\"{}\"={'d}", any.[
@@ -113,7 +112,6 @@ ORMContext.delete :: (ctx: ^ORMContext, data_: any) -> bool {
 
     q: QueryBuilder;
     q->init(data.type, ctx);
-    defer q->free();
 
     q->filter("\"{}\"={'d}", any.[
         .{ ^primary_key.name, str },
@@ -141,7 +139,6 @@ ORMContext.find :: (ctx: ^ORMContext, $T: type_expr, key: any) -> ^T {
 
     q: QueryBuilder;
     q->init(T, ctx);
-    defer q->free();
 
     q->filter("\"{}\"={'d}", any.[
         .{ ^primary_key.name, str },

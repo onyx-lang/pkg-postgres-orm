@@ -4,7 +4,8 @@ use core
 use core.alloc.arena {
     ArenaState,
     make_arena :: make,
-    arena_clear :: clear
+    arena_clear :: clear,
+    arena_free  :: free
 }
 use runtime.info {
     size_of, 
@@ -89,7 +90,7 @@ ORMRelation :: struct {
 } 
 
 
-
+#doc "Creates a new ORMContext instance. This is the root object needed for all ORM related functionality."
 create :: (
     conn: postgres.Connection,
     allocator := context.allocator
@@ -107,7 +108,33 @@ create :: (
     return ctx;
 }
 
+#doc "Frees everything related to the ORM context. Use this when you are completely done using the context."
+close :: (ctx: ^ORMContext) {
+    ctx->flush();
 
+    for^ ctx.models.entries {
+        delete(^it.value.relationships, ctx.allocator);
+
+        for^ col: it.value.cols {
+            delete(^col.constraints, ctx.allocator);
+            delete(^col.name, ctx.allocator);
+        }
+
+        delete(^it.value.cols, ctx.allocator);
+    }
+
+    delete(^ctx.models);
+    delete(^ctx.instances);
+
+    arena_free(^ctx.instance_arena);
+    delete(ctx, ctx.allocator);
+}
+
+
+#doc """
+    Finds all models defined in the program and ensures that a table is created for each of them.
+    This should be called once at the beginning of the program.
+"""
 #inject
 ORMContext.auto_migrate :: (ctx: ^ORMContext) -> bool {
     preload_user_defined_models(ctx);
@@ -116,6 +143,10 @@ ORMContext.auto_migrate :: (ctx: ^ORMContext) -> bool {
     return true;
 }
 
+#doc """
+    Clears all active instances of objects, and therefore invalidates all their pointers.
+    Use this when you are done working with objects (e.g. at the end of an HTTP request)
+"""
 #inject
 ORMContext.flush :: (ctx: ^ORMContext) {
     ctx.instances->clear();
@@ -339,64 +370,4 @@ create_table_for_model :: (ctx: ^ORMContext, model: ^ORMModel) -> bool {
     defer res->clear();
     
     return res->status() == .Command_Ok;
-}
-
-
-#local
-ORMInstanceKey :: struct {
-    model: type_expr;
-    value: str;
-}
-
-#overload
-core.hash.to_u32 :: (key: ORMInstanceKey) => {
-    value_hash := core.hash.to_u32(key.value);
-    model_hash := core.hash.to_u32(key.model);
-
-    return value_hash ^ model_hash;
-}
-
-#operator == (k1, k2: ORMInstanceKey) => {
-    if k1.model != k2.model do return false;
-    return k1.value == k2.value;
-}
-
-#package
-lookup_or_create_instances :: (ctx: ^ORMContext, type: type_expr, res: ^postgres.Result) -> [..] rawptr {
-    // Ensure the type is a known model type.
-    if !(ctx.models->has(type)) do return .{};
-    defer res->clear();
-
-    model := ^ctx.models[type];
-
-    // This is technically a [..] ^type, but I am avoiding
-    // making this a polymorphic procedure, because the body
-    // would be the exact same for every polymorphic version.
-    result := make([..] rawptr, ctx.allocator);
-
-    primary_idx := 0;
-    for res->nfields() {
-        if res.col_nums[it] == model.primary_col {
-            primary_idx = it;
-        }
-    }
-    primary_col := ^model.cols[primary_idx];
-
-    for row: res.rows {
-        primary_key := res->get_value(row, primary_idx);
-        id          := ORMInstanceKey.{type, primary_key};
-
-        instance_pointer := ctx.instances[id];
-        if instance_pointer == null {
-            id.value         = string.alloc_copy(primary_key, ctx.instance_allocator);
-
-            instance_pointer = new(type, ctx.instance_allocator);
-            ctx.instances[id] = instance_pointer;
-        }
-
-        postgres.result_to_struct(res, row, type, ~~ instance_pointer, ctx.instance_allocator);
-        result << instance_pointer;
-    }
-
-    return result;
 }
