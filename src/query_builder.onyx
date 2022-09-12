@@ -69,7 +69,7 @@ QueryBuilder.filter :: (qb: ^QueryBuilder, filter: str) => {
 QueryBuilder.filter :: (qb: ^QueryBuilder, filter_format: str, values: [] any) => {
     escape_any_args(qb, values);
 
-    filter := conv.format_va(filter_format, values);
+    filter := conv.format_va(filter_format, values, qb.allocator);
 
     qb.filters << filter;
     return qb;
@@ -116,7 +116,7 @@ QueryBuilder.group :: (qb: ^QueryBuilder, group_format: str, va: ..any) => {
     values := cast([] any) va;
     escape_any_args(qb, values);
 
-    group := conv.format_va(group_format, values);
+    group := conv.format_va(group_format, values, qb.allocator);
 
     qb.grouping << group;
     return qb;
@@ -338,8 +338,13 @@ build_update_query_string :: (qb: ^QueryBuilder, updates: [] ColumnUpdate) -> st
 escape_any_args :: (qb: ^QueryBuilder, values: [] any) {
     for^ values {
         if it.type == str {
-            s := cast(^str) it.data;
-            *s = postgres.escape_str(qb.ormctx.conn, *s, qb.allocator);
+            s := *cast(^str) it.data;
+
+            tmp := postgres.escape_str(qb.ormctx.conn, s, context.temp_allocator);
+            value := cast(^str) raw_alloc(context.temp_allocator, sizeof str);
+            *value = tmp;
+
+            *cast(^rawptr) ^it.data = value;
         }
     }
 }
