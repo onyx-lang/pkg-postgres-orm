@@ -1,5 +1,10 @@
 package postgres.orm
 
+use runtime.info {
+    get_type_info,
+    Type_Info_Enum
+}
+
 // Represent 16, 32, or 64-bit autoincrementing integers.
 serial16 :: #distinct u16
 serial32 :: #distinct u32
@@ -35,6 +40,16 @@ onyx_type_to_postgres_type :: (type: type_expr) -> str {
 
         #if #defined(json) {
             case json.Json do return "json";
+        }
+
+        case #default {
+            info := get_type_info(type);
+            switch info.kind {
+                case .Enum {
+                    e := cast(^Type_Info_Enum) info;
+                    return onyx_type_to_postgres_type(e.backing_type);
+                }
+            }
         }
     }
 
