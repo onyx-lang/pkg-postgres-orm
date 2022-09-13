@@ -344,7 +344,7 @@ create_table_for_model :: (ctx: ^ORMContext, model: ^ORMModel) -> bool {
 
         if col.onyx_default != null {
             buffer: [256] u8; 
-            out := conv.format_va(buffer, "{'}", .[.{col.onyx_default, col.onyx_type}]);
+            out := conv.format_va(buffer, "{'d}", .[.{col.onyx_default, col.onyx_type}]);
             io.write(^create_writer, " DEFAULT {}", out);
 
         } elseif !string.is_empty(col.default_expr) {
