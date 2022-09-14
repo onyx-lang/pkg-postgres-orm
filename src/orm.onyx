@@ -324,17 +324,17 @@ process_member_if_relation :: (member, relations) => {
         return true;
     }
 
-    rel := member.tags[0];
-    if !array.contains(.[has_one, has_many, belongs_to, many_to_many], rel.type) {
-        printf("[ERROR] '{}' does not have valid relation specifier.\n", member.name);
-        return true;
+    for^ rel: member.tags {
+        if array.contains(.[has_one, has_many, belongs_to, many_to_many], rel.type) {
+            array.push(relations, .{
+                rel.type, rel.data, base_type, member
+            });
+            return true;
+        }
     }
 
-    array.push(relations, .{
-        rel.type, rel.data, base_type, member
-    });
-
-    return true;
+    printf("[ERROR] '{}' does not have valid relation specifier.\n", member.name);
+    return false;
 }
 
 #local
