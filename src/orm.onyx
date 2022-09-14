@@ -372,19 +372,19 @@ prepare_models_in_database :: (ctx: ^ORMContext) {
     }
 
     // Ensure all of the columns are present.
-    // for^ entry: ctx.models.entries {
-    //     columns := ctx->quick_exec(Postgres_Table_Column,
-    //         core.tprintf("SELCT * FROM information_schema.columns WHERE table_schema='{}' AND table_name='{}'",
-    //             entry.value.schema_name, entry.value.table_name));
-// 
-//     //     for^ col: entry.value.cols {
-//     //         if !array.contains(columns, #(it.column_name == col.name)) {
-//     //             if !add_column_to_model(ctx, ^entry.value, col) {
-//     //                 printf("[ERROR] Failed to add column '{}'.\n", col.name);
-//     //             }
-//     //         }
-//     //     }
-    // }
+    for^ entry: ctx.models.entries {
+        columns := ctx->quick_exec(Postgres_Table_Column,
+            core.tprintf("SELECT * FROM information_schema.columns WHERE table_schema='{}' AND table_name='{}'",
+                entry.value.schema_name, entry.value.table_name));
+
+        for^ col: entry.value.cols {
+           if !array.contains(columns, #(it.column_name == col.name)) {
+               if !add_column_to_model(ctx, ^entry.value, col) {
+                   printf("[ERROR] Failed to add column '{}'.\n", col.name);
+               }
+           }
+        }
+    }
 }
 
 #local
@@ -436,7 +436,7 @@ add_column_to_model :: (ctx: ^ORMContext, model: ^ORMModel, col: ^ORMCol) -> boo
     add_writer, add_command := io.string_builder();
     defer delete(add_command);
 
-    io.write(^add_writer, "ALTER TABLE \"{}\".\"{}\" ADD COLUMN \"{}\" \"{}\"",
+    io.write(^add_writer, "ALTER TABLE \"{}\".\"{}\" ADD COLUMN \"{}\" {}",
         model.schema_name, model.table_name, col.name, col.type);
 
     if col.onyx_default != null {
