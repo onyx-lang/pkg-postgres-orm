@@ -3,3 +3,4 @@ test.onyx
 bin/
 .vscode/
 *.wasm
+*.sublime-project

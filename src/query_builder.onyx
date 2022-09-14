@@ -12,9 +12,11 @@ QueryBuilder :: struct {
     // The strings in these filters are allocated with
     // the allocated above. They should always be freed
     // after the query is done.
-    filters:  [..] str;
-    ordering: [..] struct {field: str; ordering: QueryOrdering};
-    grouping: [..] str;
+    selection: str;
+    filters:   [..] str;
+    havings:   [..] str;
+    ordering:  [..] struct {field: str; ordering: QueryOrdering};
+    grouping:  [..] str;
 
     query_limit := 0;
     query_offset := 0;
@@ -34,6 +36,7 @@ QueryBuilder.init :: (qb: ^QueryBuilder, type: type_expr, ctx: ^ORMContext) {
     qb.valid = true;
 
     array.init(^qb.filters,  allocator=qb.allocator);
+    array.init(^qb.havings,  allocator=qb.allocator);
     array.init(^qb.ordering, allocator=qb.allocator);
     array.init(^qb.grouping, allocator=qb.allocator);
 }
@@ -44,15 +47,30 @@ QueryBuilder.free :: (qb: ^QueryBuilder) {
         raw_free(qb.allocator, it.data);
     }
 
+    for qb.havings {
+        raw_free(qb.allocator, it.data);
+    }
+
     for qb.grouping {
         raw_free(qb.allocator, it.data);
     }
 
     delete(^qb.filters);
+    delete(^qb.havings);
     delete(^qb.ordering);
     delete(^qb.grouping);
+
+    if !string.is_empty(qb.selection) {
+        delete(^qb.selection);
+    }
 }
 
+
+#inject
+QueryBuilder.select :: (qb: ^QueryBuilder, selection: str) => {
+    qb.selection = string.alloc_copy(selection, qb.allocator);
+    return qb;
+}
 
 
 #inject
@@ -81,6 +99,32 @@ QueryBuilder.filter :: (qb: ^QueryBuilder, filter_format: str, va: ..any) => {
     return qb->filter(filter_format, values);
 }
 
+
+#inject
+QueryBuilder.having :: #match #local {}
+
+#overload
+QueryBuilder.having :: (qb: ^QueryBuilder, having: str) => {
+    qb.havings << string.alloc_copy(having, qb.allocator);
+
+    return qb;
+}
+
+#overload
+QueryBuilder.having :: (qb: ^QueryBuilder, having_format: str, values: [] any) => {
+    escape_any_args(qb, values);
+
+    having := conv.format_va(having_format, values, qb.allocator);
+
+    qb.havings << having;
+    return qb;
+}
+
+#overload #precedence 2
+QueryBuilder.having :: (qb: ^QueryBuilder, having_format: str, va: ..any) => {
+    values := cast([] any) va;
+    return qb->having(having_format, values);
+}
 
 
 QueryOrdering :: enum {
@@ -112,14 +156,19 @@ QueryBuilder.group :: (qb: ^QueryBuilder, group: str) => {
 }
 
 #overload
-QueryBuilder.group :: (qb: ^QueryBuilder, group_format: str, va: ..any) => {
-    values := cast([] any) va;
+QueryBuilder.group :: (qb: ^QueryBuilder, group_format: str, values: [] any) => {
     escape_any_args(qb, values);
 
     group := conv.format_va(group_format, values, qb.allocator);
 
     qb.grouping << group;
     return qb;
+}
+
+#overload #precedence 2
+QueryBuilder.group :: (qb: ^QueryBuilder, group_format: str, va: ..any) => {
+    values := cast([] any) va;
+    return qb->group(group_format, values);
 }
 
 
@@ -139,35 +188,52 @@ QueryBuilder.offset :: (qb: ^QueryBuilder, offset: u32) => {
 
 
 #inject
-QueryBuilder.all :: (qb: ^QueryBuilder) -> [] rawptr {
+QueryBuilder.all :: (qb: ^QueryBuilder, alternate_return_type := void) -> [] rawptr {
     if !qb.valid do return .[];
 
     query := build_select_query_string(qb);
-
     res := qb.ormctx->exec_log(query);
-    instances := lookup_or_create_instances(qb.ormctx, qb.table_type, ^res);
-    defer delete(^instances);
+    defer qb->free();
 
-    qb->free();
+    if alternate_return_type == void {
+        instances := lookup_or_create_instances(qb.ormctx, qb.table_type, ^res);
+        defer delete(^instances);
+        return ~~ array.copy(instances, context.temp_allocator);
 
-    return ~~ array.copy(instances, context.temp_allocator);
+    } else {
+        results := make([] rawptr, res.rows);
+        for res.rows {
+            instance_pointer := new(alternate_return_type, qb.ormctx.instance_allocator);
+            postgres.result_to_struct(^res, it, alternate_return_type, ~~ instance_pointer, qb.ormctx.instance_allocator);
+            results[it] = instance_pointer;
+        }
+
+        return results;
+    }
 }
 
 #inject
-QueryBuilder.first :: (qb: ^QueryBuilder) -> rawptr {
+QueryBuilder.first :: (qb: ^QueryBuilder, alternate_return_type := void) -> rawptr {
     if !qb.valid do return .{};
 
     qb.query_limit = 1;
     query := build_select_query_string(qb);
 
     res := qb.ormctx->exec_log(query);
-    instances := lookup_or_create_instances(qb.ormctx, qb.table_type, ^res);
-    defer if instances.count > 0 do delete(^instances);
+    defer qb->free();
 
-    qb->free();
+    if alternate_return_type == void {
+        instances := lookup_or_create_instances(qb.ormctx, qb.table_type, ^res);
+        defer if instances.count > 0 do delete(^instances);
 
-    if instances.count == 0 do return null;
-    return ~~ instances.data[0];
+        if instances.count == 0 do return null;
+        return ~~ instances.data[0];
+
+    } else {
+        instance_pointer := new(alternate_return_type, qb.ormctx.instance_allocator);
+        postgres.result_to_struct(^res, 0, alternate_return_type, ~~ instance_pointer, qb.ormctx.instance_allocator);
+        return ~~ instance_pointer;
+    }
 }
 
 #inject
@@ -179,7 +245,7 @@ QueryBuilder.find :: (qb: ^QueryBuilder, key: any) -> rawptr {
     model       := ^qb.ormctx.models[qb.table_type];
     primary_key := ^model.cols[model.primary_col];
 
-    qb->filter("\"{}\"={}", .[ .{ ^primary_key.name, str }, key ]);
+    qb->filter("\"{}\"={'d}", .[ .{ ^primary_key.name, str }, key ]);
 
     return qb->first();
 }
@@ -236,12 +302,37 @@ build_select_query_string :: (qb: ^QueryBuilder) -> str {
     select_writer, select_command := io.string_builder();
     defer delete(select_command);
 
-    io.write(^select_writer, "SELECT * FROM \"{}\".\"{}\"", qb.model.schema_name, qb.model.table_name);
+    selection := do {
+        if string.is_empty(qb.selection) do return "*";
+        return qb.selection;
+    };
+
+    io.write(^select_writer, "SELECT {} FROM \"{}\".\"{}\"", selection, qb.model.schema_name, qb.model.table_name);
 
     if qb.filters.length > 0 {
         io.write(^select_writer, " WHERE ");
 
         for^ qb.filters {
+            if !#first do io.write(^select_writer, " AND ");
+
+            io.write(^select_writer, *it);
+        }
+    }
+
+    if qb.grouping.length > 0 {
+        io.write(^select_writer, " GROUP BY ");
+
+        for^ qb.grouping {
+            if !#first do io.write(^select_writer, ", ");
+
+            io.write(^select_writer, *it);
+        }
+    }
+
+    if qb.havings.length > 0 {
+        io.write(^select_writer, " HAVING ");
+
+        for^ qb.havings {
             if !#first do io.write(^select_writer, " AND ");
 
             io.write(^select_writer, *it);
@@ -258,22 +349,12 @@ build_select_query_string :: (qb: ^QueryBuilder) -> str {
         }
     }
 
-    if qb.grouping.length > 0 {
-        io.write(^select_writer, " GROUP BY ");
-
-        for^ qb.grouping {
-            if !#first do io.write(^select_writer, ", ");
-
-            io.write(^select_writer, *it);
-        }
+    if qb.query_limit > 0 {
+        io.write(^select_writer, " LIMIT {}", qb.query_limit);
     }
 
     if qb.query_offset > 0 {
         io.write(^select_writer, " OFFSET {}", qb.query_offset);
-    }
-
-    if qb.query_limit > 0 {
-        io.write(^select_writer, " LIMIT {}", qb.query_limit);
     }
 
     return string.temp_copy(string.as_str(select_command));

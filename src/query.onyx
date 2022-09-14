@@ -37,6 +37,12 @@ ORMContext.query :: macro (ctx: ^ORMContext, $type: type_expr) -> Query(type) {
 }
 
 #inject
+Query.select :: (q: Query, selection: str) => {
+    q.builder->select(selection);
+    return q;
+}
+
+#inject
 Query.filter :: #match #local {}
 
 #overload
@@ -55,6 +61,29 @@ Query.filter :: (q: Query, filter_format: str, values: [] any) => {
 #overload #precedence 2
 Query.filter :: (q: Query, filter_format: str, values: ..any) => {
     q.builder->filter(filter_format, values);
+    return q;
+}
+
+
+#inject
+Query.having :: #match #local {}
+
+#overload
+Query.having :: (q: Query, having: str) => {
+    q.builder->having(having);
+    return q;
+}
+
+#overload
+Query.having :: (q: Query, having_format: str, values: [] any) => {
+    q.builder->having(having_format, values);
+    return q;
+}
+
+// @Cleanup  make this a macro when macros support any
+#overload #precedence 2
+Query.having :: (q: Query, having_format: str, values: ..any) => {
+    q.builder->having(filter_format, values);
     return q;
 }
 
@@ -97,14 +126,34 @@ Query.offset :: macro (q: Query, offset: u32) => {
 
 
 #inject
+Query.all :: #match #local {}
+
+#overload
 Query.all :: (q: Query) -> [] ^q.table_type {
     return ~~ q.builder->all();
 }
 
-#inject
-Query.first :: (q: Query) -> ^q.table_type {
-    return ~~ q.builder->first();
+#overload
+Query.all :: macro (q: Query, $return_type: type_expr) -> [] ^return_type {
+    q_ := q;
+    return ~~ q_.builder->all(return_type);
 }
+
+#inject
+Query.first :: #match #local {}
+
+#overload
+Query.first :: (q: Query($_), $return_type: type_expr) -> ^return_type {
+    q_ := q;
+    return ~~ q_.builder->first(return_type);
+}
+
+#overload
+Query.first :: (q: Query) -> ^q.table_type {
+ return ~~ q.builder->first();
+}
+
+
 
 #inject
 Query.find :: (q: Query, key: any) -> ^q.table_type {
