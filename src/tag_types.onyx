@@ -9,6 +9,8 @@ model :: struct {
 primary_key :: #distinct void
 not_null    :: #distinct void
 unique      :: #distinct void
+nullable    :: #distinct void
+
 constraint  :: struct {
     name: str;
     cond: str;
@@ -40,3 +42,9 @@ many_to_many :: struct {
     lookup_key:    str;
     result_key:    str;
 }
+
+section :: struct {
+    type: type_expr;
+}
+
+end_section :: #distinct void
