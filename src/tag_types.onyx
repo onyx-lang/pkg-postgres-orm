@@ -22,6 +22,13 @@ default     :: struct {
 joint_unique :: struct {
     cols: [] str;
 }
+foreign_key :: struct {
+    model: type_expr;
+    key: str = "";
+
+    on_delete := ReferentialAction.No_Action;
+    on_update := ReferentialAction.No_Action;
+}
 
 has_one :: struct {
     foreign_key: str;
@@ -49,3 +56,12 @@ section :: struct {
 }
 
 end_section :: #distinct void
+
+#local
+ReferentialAction :: enum {
+    No_Action;
+    Restrict;
+    Cascade;
+    Set_Null;
+    Set_Default;
+}

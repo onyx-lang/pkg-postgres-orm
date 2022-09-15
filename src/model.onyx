@@ -63,11 +63,21 @@ internal_add :: (ctx: ^ORMContext, data: any) -> rawptr {
 
     cmd := string.as_str(insert_command);
     res := ctx->exec_log(cmd);
-    defer res->clear();
 
     if res->status() == .Tuples_Ok {
-        postgres.result_to_struct(^res, 0, data.type, ~~ data.data, ctx.allocator);
-        return data.data;
+        if model.primary_col >= 0 {
+            instances := lookup_or_create_instances(ctx, data.type, ^res);
+            defer if instances.count > 0 do delete(^instances);
+
+            if instances.count == 0 do return null;
+            return instances[0];
+
+        } else {
+            new_data := new(data.type, ctx.instance_allocator);
+            postgres.result_to_struct(^res, 0, data.type, ~~ new_data, ctx.allocator);
+            res->clear();
+            return new_data;
+        }
     }
 
     printf("[ERROR] Postgres: {}", res->error_message());

@@ -73,6 +73,8 @@ ORMCol :: struct {
     unique: bool;
 
     constraints: [] constraint;
+
+    foreign: ^foreign_key;
     
     member_info: ^runtime.info.Type_Info_Struct.Member;
 
@@ -263,6 +265,16 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
                 if tag.type == default {
                     col.default_expr = (cast(^default) tag.data).expr;
                 }
+
+                if tag.type == foreign_key {
+                    if col.foreign != null {
+                        printf("[ERROR] In model '{}', '{}' has multiple foreign key declarations.\n", type_idx, col.name);
+                        model_valid = false;
+                        continue;
+                    }
+
+                    col.foreign = cast(^foreign_key) tag.data;
+                }
             }
 
             col.constraints = constraints;
@@ -365,6 +377,27 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
                 }
             }
         }
+
+        for^ col: it.value.cols {
+            if col.foreign != null {
+                foreign_model := ^ctx.models[col.foreign.model];
+                if foreign_model == null {
+                    printf("[ERROR] In model '{}', foreign key '{}' is not valid because '{}' is not a model.\n",
+                        it.value.type_info.name, col.name, col.foreign.model);
+                    continue;
+                }
+
+                if string.is_empty(col.foreign.key) {
+                    col.foreign.key = foreign_model.cols[foreign_model.primary_col].name;
+                }
+
+                if array.find(foreign_model.cols, #(it.name == col.foreign.key)) < 0 {
+                    printf("[ERROR] In model '{}', foreign key '{}' is not valid because '{}' is not a column of '{}'.\n",
+                        it.value.type_info.name, col.name, col.foreign.key, col.foreign.model);
+                    continue;
+                }
+            }
+        }
     }
 }
 
@@ -461,13 +494,30 @@ prepare_models_in_database :: (ctx: ^ORMContext) {
     existing_tables := ctx->quick_exec(Postgres_Table, "SELECT * FROM information_schema.tables;");
 
     // If the model does not exist in the database, create it.
+
+    to_create := make([..] ^ORMModel);
+    defer delete(^to_create);
+
     for^ entry: ctx.models.entries {
         if !array.contains(existing_tables,
             #(it.table_name == entry.value.table_name && it.table_schema == entry.value.schema_name)) {
-            
-            if !create_table_for_model(ctx, ^entry.value) {
-                printf("[ERROR] Failed to create table '{}'.\n", entry.value.table_name);
+
+            to_create << ^entry.value;
+        }
+    }
+
+    while to_create.length > 0 {
+        removed_one := false;
+        for iter.as_iterator(^to_create) {
+            if create_table_for_model(ctx, it) {
+                #remove;
+                removed_one = true;
             }
+        }
+
+        if !removed_one {
+            printf("[ERROR] Failed to create one or more tables.\n");
+            return;
         }
     }
 
@@ -521,6 +571,27 @@ create_table_for_model :: (ctx: ^ORMContext, model: ^ORMModel) -> bool {
 
             io.write(^create_writer, " CHECK ({})", it.cond);
         }
+
+        if col.foreign != null {
+            foreign_model := ^ctx.models[col.foreign.model];
+            
+            io.write(^create_writer, " REFERENCES \"{}\".\"{}\" ({})",
+                foreign_model.schema_name, foreign_model.table_name, col.foreign.key);
+
+            switch col.foreign.on_delete {
+                case .Restrict    do io.write(^create_writer, " ON DELETE RESTRICT");
+                case .Cascade     do io.write(^create_writer, " ON DELETE CASCADE");
+                case .Set_Null    do io.write(^create_writer, " ON DELETE SET NULL");
+                case .Set_Default do io.write(^create_writer, " ON DELETE SET DEFAULT");
+            }
+
+            switch col.foreign.on_update {
+                case .Restrict    do io.write(^create_writer, " ON UPDATE RESTRICT");
+                case .Cascade     do io.write(^create_writer, " ON UPDATE CASCADE");
+                case .Set_Null    do io.write(^create_writer, " ON UPDATE SET NULL");
+                case .Set_Default do io.write(^create_writer, " ON UPDATE SET DEFAULT");
+            }
+        }
     } 
 
     io.write(^create_writer, ");");
@@ -550,6 +621,28 @@ add_column_to_model :: (ctx: ^ORMContext, model: ^ORMModel, col: ^ORMCol) -> boo
 
     if col.unique      do io.write(^add_writer, " UNIQUE");
     if col.not_null    do io.write(^add_writer, " NOT NULL");
+
+    // @CopyPaste from above
+    if col.foreign != null {
+        foreign_model := ^ctx.models[col.foreign.model];
+        
+        io.write(^add_writer, " REFERENCES \"{}\".\"{}\" ({})",
+            foreign_model.schema_name, foreign_model.table_name, col.foreign.key);
+
+        switch col.foreign.on_delete {
+            case .Restrict    do io.write(^add_writer, " ON DELETE RESTRICT");
+            case .Cascade     do io.write(^add_writer, " ON DELETE CASCADE");
+            case .Set_Null    do io.write(^add_writer, " ON DELETE SET NULL");
+            case .Set_Default do io.write(^add_writer, " ON DELETE SET DEFAULT");
+        }
+
+        switch col.foreign.on_update {
+            case .Restrict    do io.write(^add_writer, " ON UPDATE RESTRICT");
+            case .Cascade     do io.write(^add_writer, " ON UPDATE CASCADE");
+            case .Set_Null    do io.write(^add_writer, " ON UPDATE SET NULL");
+            case .Set_Default do io.write(^add_writer, " ON UPDATE SET DEFAULT");
+        }
+    }
 
     io.write(^add_writer, ";");
 

@@ -17,8 +17,11 @@ use postgres {orm}
 
 @orm.model.{"user"}
 User :: struct {
-    @orm.primary_key  id: orm.serial32;
-    @orm.not_null     username: str;
+    @orm.primary_key @orm.auto_increment
+    id: u32;
+
+    @orm.not_null
+    username: str;
 }
 
 db := orm.create(connection);
@@ -84,15 +87,15 @@ The above methods allow you to filter and refine your query, but do not actually
 issue an query. To do this, you have to end your query with one of the follow methods.
 
 ### all
-`all()`: returns all results as an array
+`all()`: Returns all results as an array
 
 ### first
-`first()`: returns only the first result as an object.
-*Effectively, ->limit(1)->all()[0]*
+`first()`: Returns only the first result as an object.
+*Effectively, `->limit(1)->all()[0]`*
 
 ### find
-`find(primary_key)`: returns the first result where the primary key is `primary_key`.
-*Effectively, ->filter("pk={}", primary_key)->first()*
+`find(primary_key)`: Returns the first result where the primary key is `primary_key`.
+*Effectively, `->filter("pk={}", primary_key)->first()`*
 
 ### delete
 `delete()`: Deletes ALL entries where the query matches.
