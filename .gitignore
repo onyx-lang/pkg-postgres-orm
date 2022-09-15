@@ -4,3 +4,4 @@ bin/
 .vscode/
 *.wasm
 *.sublime-project
+*.sublime-workspace
