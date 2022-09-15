@@ -35,12 +35,11 @@ lookup_or_create_instances :: (ctx: ^ORMContext, type: type_expr, res: ^postgres
     // would be the exact same for every polymorphic version.
     result := make([..] rawptr, ctx.allocator);
 
-    primary_idx := 0;
-    for res->nfields() {
-        if res.col_nums[it] == model.primary_col {
-            primary_idx = it;
-        }
-    }
+    // Have to add one to model.primary_col here because col_nums
+    // is 1-indexed and model column numbers are 0-indexed.
+    primary_idx := array.find(res.col_nums, model.primary_col + 1);
+    if primary_idx == -1 do return result;
+
     primary_col := ^model.cols[primary_idx];
 
     for row: res.rows {

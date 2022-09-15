@@ -195,12 +195,25 @@ QueryBuilder.all :: (qb: ^QueryBuilder, alternate_return_type := void) -> [] raw
     res := qb.ormctx->exec_log(query);
     defer qb->free();
 
-    if alternate_return_type == void {
+    if res->status() != .Tuples_Ok {
+        return .[];
+    }
+
+    if alternate_return_type == void && qb.model.primary_col >= 0 {
         instances := lookup_or_create_instances(qb.ormctx, qb.table_type, ^res);
         defer delete(^instances);
         return ~~ array.copy(instances, context.temp_allocator);
 
     } else {
+        //
+        // If the model does not have a primary key column,
+        // we can still return pointers to the structure,
+        // they just cannot be tracked and updated using
+        // the internal instance map.
+        if alternate_return_type == void {
+            alternate_return_type = qb.table_type;
+        }
+
         results := make([] rawptr, res.rows);
         for res.rows {
             instance_pointer := new(alternate_return_type, qb.ormctx.instance_allocator);
@@ -222,7 +235,11 @@ QueryBuilder.first :: (qb: ^QueryBuilder, alternate_return_type := void) -> rawp
     res := qb.ormctx->exec_log(query);
     defer qb->free();
 
-    if alternate_return_type == void {
+    if res->status() != .Tuples_Ok {
+        return null;
+    }
+
+    if alternate_return_type == void && qb.model.primary_col >= 0 {
         instances := lookup_or_create_instances(qb.ormctx, qb.table_type, ^res);
         defer if instances.count > 0 do delete(^instances);
 
@@ -230,6 +247,12 @@ QueryBuilder.first :: (qb: ^QueryBuilder, alternate_return_type := void) -> rawp
         return ~~ instances.data[0];
 
     } else {
+        //
+        // See comment above.
+        if alternate_return_type == void {
+            alternate_return_type = qb.table_type;
+        }
+
         instance_pointer := new(alternate_return_type, qb.ormctx.instance_allocator);
         postgres.result_to_struct(^res, 0, alternate_return_type, ~~ instance_pointer, qb.ormctx.instance_allocator);
         return ~~ instance_pointer;
@@ -240,12 +263,15 @@ QueryBuilder.first :: (qb: ^QueryBuilder, alternate_return_type := void) -> rawp
 QueryBuilder.find :: (qb: ^QueryBuilder, key: any) -> rawptr {
     if !qb.valid do return .{};
 
-    qb.query_limit = 1;
+    if qb.model.primary_col == -1 {
+        printf("[ERROR] Cannot use find() on a model that does not have a primary key.");
+        return null;
+    }
 
-    model       := ^qb.ormctx.models[qb.table_type];
-    primary_key := ^model.cols[model.primary_col];
+    primary_key := ^qb.model.cols[qb.model.primary_col];
 
     qb->filter("\"{}\"={'d}", .[ .{ ^primary_key.name, str }, key ]);
+    qb.query_limit = 1;
 
     return qb->first();
 }
@@ -263,7 +289,11 @@ QueryBuilder.delete :: (qb: ^QueryBuilder) -> i32 {
         res->clear();
     }
 
-    if res->status() != .Tuples_Ok do return -1;
+    if status := res->status(); status != .Tuples_Ok {
+        if status == .Command_Ok do return 1;
+
+        return -1;
+    }
 
     return res.rows;
 }
@@ -291,7 +321,11 @@ QueryBuilder.update :: (qb: ^QueryBuilder, updates: [] ColumnUpdate) -> i32 {
         res->clear();
     }
 
-    if res->status() != .Tuples_Ok do return -1;
+    if status := res->status(); status != .Tuples_Ok {
+        if status == .Command_Ok do return 1;
+        
+        return -1;
+    }
 
     return res.rows;
 }
@@ -377,8 +411,10 @@ build_delete_query_string :: (qb: ^QueryBuilder) -> str {
         }
     }
 
-    io.write(^delete_writer, " RETURNING \"{}\"",
-        qb.model.cols[qb.model.primary_col].name);
+    if qb.model.primary_col >= 0 {
+        io.write(^delete_writer, " RETURNING \"{}\"",
+            qb.model.cols[qb.model.primary_col].name);
+    }
 
     return string.temp_copy(string.as_str(delete_command));
 }
@@ -409,8 +445,10 @@ build_update_query_string :: (qb: ^QueryBuilder, updates: [] ColumnUpdate) -> st
         }
     }
 
-    io.write(^update_writer, " RETURNING \"{}\"",
-        qb.model.cols[qb.model.primary_col].name);
+    if qb.model.primary_col >= 0 {
+        io.write(^update_writer, " RETURNING \"{}\"",
+            qb.model.cols[qb.model.primary_col].name);
+    }
 
     return string.temp_copy(string.as_str(update_command));
 }

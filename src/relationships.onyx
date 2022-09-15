@@ -5,7 +5,7 @@ use core
 #inject
 ORMContext.load_related :: (ctx: ^ORMContext, obj_: any) {
     obj := obj_;
-    if !strip_pointer_and_check_model(ctx, ^obj) do return;
+    if !strip_pointer_and_check_model(ctx, ^obj, require_primary_key=false) do return;
     if obj.data == null do return;
 
     model := ^ctx.models[obj.type];
@@ -175,7 +175,7 @@ load_many_to_many :: (ctx: ^ORMContext, obj: any, model: ^ORMModel, rel: ^ORMRel
             target_model.cols[target_model.primary_col].name,
             string.as_str(id_list));
 
-        q->order(mapping_model.cols[mapping_model.primary_col].name, .ASC);
+        q->order(target_model.cols[target_model.primary_col].name, .ASC);
 
         return q->all();
     };

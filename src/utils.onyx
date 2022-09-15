@@ -24,10 +24,6 @@ is_zero_value :: (z: any) -> bool {
         num_case(f32);
         num_case(f64);
 
-        num_case(serial16);
-        num_case(serial32);
-        num_case(serial64);
-
         case str {
             return (cast(^str) z.data).length == 0;
         }
@@ -79,7 +75,7 @@ ORMContext.exec_log :: (ctx: ^ORMContext, stmt: str) -> postgres.Result {
 }
 
 #package
-strip_pointer_and_check_model :: (ctx: ^ORMContext, data: ^any) => {
+strip_pointer_and_check_model :: (ctx: ^ORMContext, data: ^any, require_primary_key := true) => {
     //
     // This procedure expects data to be a pointer to
     // a model, so first the pointer type has to be
@@ -95,6 +91,18 @@ strip_pointer_and_check_model :: (ctx: ^ORMContext, data: ^any) => {
     // This is type is not known to be a model, don't
     // allow it to be created.
     if !(ctx.models->has(data.type)) {
+        return false;
+    }
+
+    if !require_primary_key {
+        return true;
+    }
+
+    //
+    // If the model does not have a primary key,
+    // it cannot be used in any of the functions
+    // that use this function.
+    if model := ^ctx.models[data.type]; model.primary_col == -1 {
         return false;
     }
 

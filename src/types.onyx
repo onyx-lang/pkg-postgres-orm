@@ -5,15 +5,6 @@ use runtime.info {
     Type_Info_Enum
 }
 
-// Represent 16, 32, or 64-bit autoincrementing integers.
-serial16 :: #distinct u16
-serial32 :: #distinct u32
-serial64 :: #distinct u64
-
-#operator == macro (s1, s2: serial16) => cast(u16) s1 == cast(u16) s2;
-#operator == macro (s1, s2: serial32) => cast(u32) s1 == cast(u32) s2;
-#operator == macro (s1, s2: serial64) => cast(u64) s1 == cast(u64) s2;
-
 #local
 registered_types: Map(type_expr, str);
 
@@ -31,10 +22,6 @@ onyx_type_to_postgres_type :: (type: type_expr) -> str {
         case i64, u64 do return "bigint";
         case f32      do return "real";
         case f64      do return "double precision";
-
-        case serial16 do return "smallserial";
-        case serial32 do return "serial";
-        case serial64 do return "bigserial";
 
         case str      do return "text";
 

@@ -6,10 +6,11 @@ model :: struct {
     schema_name := "public";
 }
 
-primary_key :: #distinct void
-not_null    :: #distinct void
-unique      :: #distinct void
-nullable    :: #distinct void
+primary_key    :: #distinct void
+not_null       :: #distinct void
+unique         :: #distinct void
+nullable       :: #distinct void
+auto_increment :: #distinct void
 
 constraint  :: struct {
     name: str;

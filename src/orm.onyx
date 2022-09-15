@@ -162,6 +162,8 @@ ORMContext.flush :: (ctx: ^ORMContext) {
     for future use.
 """
 preload_user_defined_models :: (ctx: ^ORMContext) {
+    //
+    // First: find and pre-cache all model definitions in the program.
     runtime.info.for_all_types() {
         if type_info.kind != .Struct {
             continue;
@@ -195,30 +197,7 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
         section_stack << .{};
 
         for^ member: struct_info.members {
-            for^ tag: member.tags {
-                if tag.type == section {
-                    s := *cast(^section) tag.data;
-
-                    n := array.alloc_one(^section_stack);
-                    *n = array.get(section_stack, -2);
-                    switch s.type {
-                        case unique      do n.unique = true;
-                        case not_null    do n.not_null = true;
-                        case nullable    do n.not_null = false;
-                        case primary_key do n.primary_key = true;
-                    }
-                }
-
-                if tag.type == type_expr {
-                    if *cast(^type_expr) tag.data == end_section {
-                        array.pop(^section_stack);
-                    }
-                }
-            }
-
-            if member.type == void {
-                continue;
-            }
+            process_section_tags(member, ^section_stack);
 
             if process_member_if_relation(member, ^relations) {
                 continue;
@@ -258,8 +237,21 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
                             model.primary_col = cols.length;
 
                         } else {
-                            printf("[ERROR] In model '{}', multiple fields were marked as primary keys.\n", col.onyx_type);
+                            printf("[ERROR] In model '{}', multiple fields were marked as primary keys.\n", type_idx);
                             model_valid = false;
+                        }
+                    }
+
+                    if t == auto_increment {
+                        switch col.onyx_type {
+                            case u16 do col.type = "smallserial";
+                            case u32 do col.type = "serial";
+                            case u64 do col.type = "bigserial";
+
+                            case #default {
+                                printf("[ERROR] In model '{}', @auto_increment can only be used on u16, u32, or u64 fields.", type_idx);
+                                model_valid = false;
+                            }
                         }
                     }
                 }
@@ -281,13 +273,121 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
         model.cols = cols;
         model.relationships = relations;
 
-        if model.primary_col == -1 {
-            printf("[ERROR] Expected exactly one field marked with '@primary_key'.\n");
-            model_valid = false;
-        }
-
         if model_valid {
             ctx.models[type_idx] = model;
+        }
+    }
+
+    //
+    // Second: check relationships on each model.
+    for^ ctx.models.entries {
+        for^ rel: it.value.relationships {
+            related_model := ^ctx.models[rel.target_type];
+
+            if related_model == null {
+                printf("[ERROR] In model '{}', relationship '{}' is not valid because '{}' is not a model.\n",
+                    it.value.type_info.name, rel.member_info.name, rel.target_type);
+
+                continue;
+            }
+
+            switch rel.relation_type {
+                case belongs_to {
+                    belongs_to_rel := cast(^belongs_to) rel.relation_data;
+
+                    if related_model.primary_col == -1 && string.is_empty(belongs_to_rel.foreign_key) {
+                        printf("[ERROR] In model '{}', belongs_to relationship '{}' is not valid because '{}' does not have a primary key.\n",
+                            it.value.type_info.name, rel.member_info.name, rel.target_type);
+                        continue;
+                    }
+
+                    if !array.contains(it.value.cols, #(it.name == belongs_to_rel.local_key)) {
+                        printf("[ERROR] In model '{}', belongs_to relationship '{}' is not valid because '{}' is not a member of '{}'.\n",
+                            it.value.type_info.name, rel.member_info.name, belongs_to_rel.local_key, it.value.type_info.name);
+                        continue;
+                    }
+                }
+
+                case has_many {
+                    has_many_rel := cast(^has_many) rel.relation_data;
+
+                    if it.value.primary_col == -1 && string.is_empty(has_many_rel.local_key) {
+                        printf("[ERROR] In model '{}', has_many relationship '{}' is not valid because '{}' does not have a primary key.\n",
+                            it.value.type_info.name, rel.member_info.name, it.value.type_info.name);
+                        continue;
+                    }
+                }
+
+                case has_one {
+                    has_one_rel := cast(^has_one) rel.relation_data;
+
+                    if it.value.primary_col == -1 && string.is_empty(has_one_rel.local_key) {
+                        printf("[ERROR] In model '{}', has_one relationship '{}' is not valid because '{}' does not have a primary key.\n",
+                            it.value.type_info.name, rel.member_info.name, it.value.type_info.name);
+                        continue;
+                    }
+                }
+
+                case many_to_many {
+                    many_to_many_rel := cast(^many_to_many) rel.relation_data;
+
+                    in_between_model := ^ctx.models[many_to_many_rel.mapping_model];
+
+                    if in_between_model == null {
+                        printf("[ERROR] In model '{}', many_to_many relationship '{}' is not valid because '{}' is not a model.\n",
+                            it.value.type_info.name, rel.member_info.name, in_between_model.type_info.name);
+                        continue;
+                    }
+
+                    if related_model.primary_col == -1 {
+                        printf("[ERROR] In model '{}', many_to_many relationship '{}' is not valid because '{}' does not have a primary key.\n",
+                            it.value.type_info.name, rel.member_info.name, rel.target_type);
+                        continue;
+                    }
+
+                    if it.value.primary_col == -1 {
+                        printf("[ERROR] In model '{}', many_to_many relationship '{}' is not valid because '{}' does not have a primary key.\n",
+                            it.value.type_info.name, rel.member_info.name, it.value.type_info.name);
+                        continue;
+                    }
+
+                    if !array.contains(in_between_model.cols, #(it.name == many_to_many_rel.lookup_key)) {
+                        printf("[ERROR] In model '{}', many_to_many relationship '{}' is not valid because '{}' is not a member of '{}'.\n",
+                            it.value.type_info.name, rel.member_info.name, many_to_many_rel.lookup_key, in_between_model.type_info.name);
+                        continue;
+                    }
+
+                    if !array.contains(in_between_model.cols, #(it.name == many_to_many_rel.result_key)) {
+                        printf("[ERROR] In model '{}', many_to_many relationship '{}' is not valid because '{}' is not a member of '{}'.\n",
+                            it.value.type_info.name, rel.member_info.name, many_to_many_rel.result_key, in_between_model.type_info.name);
+                        continue;
+                    }
+                }
+            }
+        }
+    }
+}
+
+#local
+process_section_tags :: (member, section_stack) => {
+    for^ tag: member.tags {
+        if tag.type == section {
+            s := *cast(^section) tag.data;
+
+            n := array.alloc_one(section_stack);
+            *n = array.get(*section_stack, -2);
+            switch s.type {
+                case unique      do n.unique = true;
+                case not_null    do n.not_null = true;
+                case nullable    do n.not_null = false;
+                case primary_key do n.primary_key = true;
+            }
+        }
+
+        if tag.type == type_expr {
+            if *cast(^type_expr) tag.data == end_section {
+                array.pop(section_stack);
+            }
         }
     }
 }
