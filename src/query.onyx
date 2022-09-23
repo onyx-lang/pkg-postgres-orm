@@ -58,7 +58,7 @@ Query.filter :: (q: Query, filter_format: str, values: [] any) => {
 }
 
 // @Cleanup  make this a macro when macros support any
-#overload #precedence 2
+#overload
 Query.filter :: (q: Query, filter_format: str, values: ..any) => {
     q.builder->filter(filter_format, values);
     return q;
@@ -81,7 +81,7 @@ Query.having :: (q: Query, having_format: str, values: [] any) => {
 }
 
 // @Cleanup  make this a macro when macros support any
-#overload #precedence 2
+#overload
 Query.having :: (q: Query, having_format: str, values: ..any) => {
     q.builder->having(filter_format, values);
     return q;

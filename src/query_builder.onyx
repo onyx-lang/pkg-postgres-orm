@@ -93,7 +93,7 @@ QueryBuilder.filter :: (qb: ^QueryBuilder, filter_format: str, values: [] any) =
     return qb;
 }
 
-#overload #precedence 2
+#overload
 QueryBuilder.filter :: (qb: ^QueryBuilder, filter_format: str, va: ..any) => {
     values := cast([] any) va;
     return qb->filter(filter_format, values);
@@ -120,7 +120,7 @@ QueryBuilder.having :: (qb: ^QueryBuilder, having_format: str, values: [] any) =
     return qb;
 }
 
-#overload #precedence 2
+#overload
 QueryBuilder.having :: (qb: ^QueryBuilder, having_format: str, va: ..any) => {
     values := cast([] any) va;
     return qb->having(having_format, values);
@@ -165,7 +165,7 @@ QueryBuilder.group :: (qb: ^QueryBuilder, group_format: str, values: [] any) => 
     return qb;
 }
 
-#overload #precedence 2
+#overload
 QueryBuilder.group :: (qb: ^QueryBuilder, group_format: str, va: ..any) => {
     values := cast([] any) va;
     return qb->group(group_format, values);
