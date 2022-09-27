@@ -78,7 +78,7 @@ ORMCol :: struct {
     
     member_info: ^runtime.info.Type_Info_Struct.Member;
 
-    has_default :: (use this: ^ORMCol) => onyx_default != null || !string.is_empty(default_expr);
+    has_default :: (use this: ^ORMCol) => onyx_default != null || !string.empty(default_expr);
 }
 
 #doc "Represents a relation between models."
@@ -307,7 +307,7 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
                 case belongs_to {
                     belongs_to_rel := cast(^belongs_to) rel.relation_data;
 
-                    if related_model.primary_col == -1 && string.is_empty(belongs_to_rel.foreign_key) {
+                    if related_model.primary_col == -1 && string.empty(belongs_to_rel.foreign_key) {
                         printf("[ERROR] In model '{}', belongs_to relationship '{}' is not valid because '{}' does not have a primary key.\n",
                             it.value.type_info.name, rel.member_info.name, rel.target_type);
                         continue;
@@ -323,7 +323,7 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
                 case has_many {
                     has_many_rel := cast(^has_many) rel.relation_data;
 
-                    if it.value.primary_col == -1 && string.is_empty(has_many_rel.local_key) {
+                    if it.value.primary_col == -1 && string.empty(has_many_rel.local_key) {
                         printf("[ERROR] In model '{}', has_many relationship '{}' is not valid because '{}' does not have a primary key.\n",
                             it.value.type_info.name, rel.member_info.name, it.value.type_info.name);
                         continue;
@@ -333,7 +333,7 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
                 case has_one {
                     has_one_rel := cast(^has_one) rel.relation_data;
 
-                    if it.value.primary_col == -1 && string.is_empty(has_one_rel.local_key) {
+                    if it.value.primary_col == -1 && string.empty(has_one_rel.local_key) {
                         printf("[ERROR] In model '{}', has_one relationship '{}' is not valid because '{}' does not have a primary key.\n",
                             it.value.type_info.name, rel.member_info.name, it.value.type_info.name);
                         continue;
@@ -387,7 +387,7 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
                     continue;
                 }
 
-                if string.is_empty(col.foreign.key) {
+                if string.empty(col.foreign.key) {
                     col.foreign.key = foreign_model.cols[foreign_model.primary_col].name;
                 }
 
@@ -556,7 +556,7 @@ create_table_for_model :: (ctx: ^ORMContext, model: ^ORMModel) -> bool {
             out := conv.format_va(buffer, "{'d}", .[.{col.onyx_default, col.onyx_type}]);
             io.write(^create_writer, " DEFAULT {}", out);
 
-        } elseif !string.is_empty(col.default_expr) {
+        } elseif !string.empty(col.default_expr) {
             io.write(^create_writer, " DEFAULT {}", col.default_expr);
         }
 
@@ -615,7 +615,7 @@ add_column_to_model :: (ctx: ^ORMContext, model: ^ORMModel, col: ^ORMCol) -> boo
         out := conv.format_va(buffer, "{'d}", .[.{col.onyx_default, col.onyx_type}]);
         io.write(^add_writer, " DEFAULT {}", out);
 
-    } elseif !string.is_empty(col.default_expr) {
+    } elseif !string.empty(col.default_expr) {
         io.write(^add_writer, " DEFAULT {}", col.default_expr);
     }
 

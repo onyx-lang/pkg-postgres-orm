@@ -60,7 +60,7 @@ QueryBuilder.free :: (qb: ^QueryBuilder) {
     delete(^qb.ordering);
     delete(^qb.grouping);
 
-    if !string.is_empty(qb.selection) {
+    if !string.empty(qb.selection) {
         delete(^qb.selection);
     }
 }
@@ -337,7 +337,7 @@ build_select_query_string :: (qb: ^QueryBuilder) -> str {
     defer delete(select_command);
 
     selection := do {
-        if string.is_empty(qb.selection) do return "*";
+        if string.empty(qb.selection) do return "*";
         return qb.selection;
     };
 
