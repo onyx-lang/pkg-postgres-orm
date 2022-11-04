@@ -26,7 +26,7 @@ Query :: struct (table_type: type_expr) {
 }
 
 #inject
-ORMContext.query :: macro (ctx: ^ORMContext, $type: type_expr) -> Query(type) {
+ORMContext.query :: (ctx: ^ORMContext, $type: type_expr) -> Query(type) {
     Query :: Query
     QueryBuilder :: QueryBuilder
 
@@ -113,13 +113,13 @@ Query.group :: (q: Query, group_format: str, values: .. any) => {
 
 
 #inject
-Query.limit :: macro (q: Query, limit: u32) => {
+Query.limit :: (q: Query, limit: u32) => {
     q.builder.limit = limit;
     return q;
 }
 
 #inject
-Query.offset :: macro (q: Query, offset: u32) => {
+Query.offset :: (q: Query, offset: u32) => {
     q.builder.offset = offset;
     return q;
 }
