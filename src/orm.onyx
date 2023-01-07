@@ -508,7 +508,7 @@ prepare_models_in_database :: (ctx: ^ORMContext) {
 
     while to_create.length > 0 {
         removed_one := false;
-        for iter.as_iterator(^to_create) {
+        for iter.as_iter(^to_create) {
             if create_table_for_model(ctx, it) {
                 #remove;
                 removed_one = true;
