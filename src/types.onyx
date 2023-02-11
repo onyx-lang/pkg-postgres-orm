@@ -29,6 +29,14 @@ onyx_type_to_postgres_type :: (type: type_expr) -> str {
             case json.Json do return "json";
         }
 
+        #if #defined(core.time.Date) {
+            case core.time.Date do return "Date";
+        }
+
+        #if #defined(core.time.Timestamp) {
+            case core.time.Timestamp do return "Timestamp";
+        }
+
         case #default {
             info := get_type_info(type);
             switch info.kind {

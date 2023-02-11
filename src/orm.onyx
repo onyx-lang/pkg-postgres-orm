@@ -539,7 +539,7 @@ prepare_models_in_database :: (ctx: ^ORMContext) {
 
 #local
 create_table_for_model :: (ctx: ^ORMContext, model: ^ORMModel) -> bool {
-    printf("[INFO ] Creating {}.{}\n", model.schema_name, model.table_name);
+    log(.Info, "PG-ORM", tprintf("Creating {}.{}\n", model.schema_name, model.table_name));
 
     create_writer, create_command := io.string_builder();
     defer delete(create_command);
