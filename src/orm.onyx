@@ -98,7 +98,7 @@ create :: (
     allocator := context.allocator
     ) -> ^ORMContext {
     
-    ctx := make(ORMContext, allocator=allocator);
+    ctx := new(ORMContext, allocator=allocator);
     ctx.allocator = allocator;
     ctx.conn = conn;
     ctx.models = make(typeof ctx.models, allocator);
