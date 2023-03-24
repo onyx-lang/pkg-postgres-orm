@@ -129,7 +129,7 @@ close :: (ctx: ^ORMContext) {
     delete(^ctx.instances);
 
     arena_free(^ctx.instance_arena);
-    delete(ctx, ctx.allocator);
+    raw_free(ctx.allocator, ctx);
 }
 
 

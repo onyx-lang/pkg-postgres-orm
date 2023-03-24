@@ -105,7 +105,7 @@ ORMContext.save :: (ctx: ^ORMContext, data_: any) -> bool {
     q->filter("\"{}\"={'d}", any.[
         .{ ^primary_key.name, str },
         .{
-            cast(^u8) data.data + primary_key.member_info.offset,
+            cast([^] u8) data.data + primary_key.member_info.offset,
             primary_key.onyx_type
         }
     ]);
@@ -132,7 +132,7 @@ ORMContext.delete :: (ctx: ^ORMContext, data_: any) -> bool {
     q->filter("\"{}\"={'d}", any.[
         .{ ^primary_key.name, str },
         .{
-            cast(^u8) data.data + primary_key.member_info.offset,
+            cast([^] u8) data.data + primary_key.member_info.offset,
             primary_key.onyx_type
         }
     ]);
@@ -221,13 +221,13 @@ ORMContext.link :: (ctx: ^ORMContext, elem1_: any, elem2_: any) -> rawptr {
     pk2_link_offset := array.first(join_model.cols, #(it.name == many_to_many_rel.result_key)).member_info.offset;
 
     // join_object.key1 = elem1.key1
-    memory.copy(cast(^u8) join_object + pk1_link_offset,
-        cast(^u8) elem1.data + pk1.member_info.offset,
+    memory.copy(cast([^] u8) join_object + pk1_link_offset,
+        cast([^] u8) elem1.data + pk1.member_info.offset,
         runtime.info.size_of(pk1.onyx_type));
 
     // join_object.key2 = elem1.key2
-    memory.copy(cast(^u8) join_object + pk2_link_offset,
-        cast(^u8) elem2.data + pk2.member_info.offset,
+    memory.copy(cast([^] u8) join_object + pk2_link_offset,
+        cast([^] u8) elem2.data + pk2.member_info.offset,
         runtime.info.size_of(pk2.onyx_type));
 
     join_object = internal_add(ctx, .{join_object, join_type});
@@ -279,12 +279,12 @@ ORMContext.unlink :: (ctx: ^ORMContext, elem1_: any, elem2_: any) -> bool {
 
     q->filter("\"{}\"={'d}", any.[
         .{ ^many_to_many_rel.lookup_key, str },
-        .{ cast(^u8) elem1.data + pk1.member_info.offset, pk1.onyx_type },
+        .{ cast([^] u8) elem1.data + pk1.member_info.offset, pk1.onyx_type },
     ]);
 
     q->filter("\"{}\"={'d}", any.[
         .{ ^many_to_many_rel.result_key, str },
-        .{ cast(^u8) elem2.data + pk2.member_info.offset, pk2.onyx_type },
+        .{ cast([^] u8) elem2.data + pk2.member_info.offset, pk2.onyx_type },
     ]);
 
     return q->delete() > 0;
@@ -302,7 +302,7 @@ get_columns_from_value :: (model: ^ORMModel, data: any, skip_primary_key := fals
     for^ model.cols {
         if it.primary_key && skip_primary_key do continue;
 
-        value := any.{ cast(^u8) data.data + it.member_info.offset, it.onyx_type };
+        value := any.{ cast([^] u8) data.data + it.member_info.offset, it.onyx_type };
 
         // @TODO Double check this condition because it does not make
         // complete sense to me right now.

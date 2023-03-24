@@ -28,7 +28,7 @@ load_has_one :: (ctx: ^ORMContext, obj: any, model: ^ORMModel, rel: ^ORMRelation
     q: QueryBuilder;
     q->init(rel.target_type, ctx);
 
-    obj_base := cast(^u8) obj.data;
+    obj_base := cast([^] u8) obj.data;
     key := do {
         col := model.primary_col; 
         if !string.empty(has_one_rel.local_key) {
@@ -58,7 +58,7 @@ load_belongs_to :: (ctx: ^ORMContext, obj: any, model: ^ORMModel, rel: ^ORMRelat
     q: QueryBuilder;
     q->init(rel.target_type, ctx);
 
-    obj_base := cast(^u8) obj.data;
+    obj_base := cast([^] u8) obj.data;
     key := do {
         col := array.find(model.cols, #(it.name == belongs_to_rel.local_key));
         return ^model.cols[col];
@@ -94,7 +94,7 @@ load_has_many :: (ctx: ^ORMContext, obj: any, model: ^ORMModel, rel: ^ORMRelatio
     q: QueryBuilder;
     q->init(rel.target_type, ctx);
 
-    obj_base := cast(^u8) obj.data;
+    obj_base := cast([^] u8) obj.data;
     key := do {
         col := model.primary_col; 
         if !string.empty(has_many_rel.local_key) {
@@ -128,7 +128,7 @@ load_many_to_many :: (ctx: ^ORMContext, obj: any, model: ^ORMModel, rel: ^ORMRel
 
     model         := ^ctx.models[obj.type];
     mapping_model := ^ctx.models[many_to_many_rel.mapping_model];
-    obj_base      := cast(^u8) obj.data;
+    obj_base      := cast([^] u8) obj.data;
 
     Map_Wrapper :: struct {
         id: str;

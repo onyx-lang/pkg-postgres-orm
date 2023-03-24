@@ -31,7 +31,7 @@ is_zero_value :: (z: any) -> bool {
 
     size := runtime.info.size_of(z.type);
     for size {
-        if (cast(^u8) z.data)[it] != 0 do return false;
+        if (cast([^] u8) z.data)[it] != 0 do return false;
     }
 
     return true;
