@@ -1,6 +1,7 @@
 package postgres.orm
 
-use core
+use core {package, *}
+use runtime
 
 #doc """
     Adds a new instance of a model the database.

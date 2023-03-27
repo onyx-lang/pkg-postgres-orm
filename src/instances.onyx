@@ -1,6 +1,6 @@
 package postgres.orm
 
-use core
+use core {package, *}
 
 
 #package

@@ -1,6 +1,7 @@
 package postgres.orm
 
-use core
+use core {package, *}
+use runtime
 use runtime.info {
     get_type_info,
     Type_Info_Pointer

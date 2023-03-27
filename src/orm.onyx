@@ -1,12 +1,13 @@
 package postgres.orm
 
-use core
+use core {package, *}
 use core.alloc.arena {
     ArenaState,
     make_arena :: make,
     arena_clear :: clear,
     arena_free  :: free
 }
+use runtime
 use runtime.info {
     size_of, 
     get_type_info,

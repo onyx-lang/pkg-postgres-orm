@@ -2,3 +2,7 @@ package postgres.orm
 
 #load_all "./src"
 
+#package {
+    use postgres
+    postgres :: postgres
+}

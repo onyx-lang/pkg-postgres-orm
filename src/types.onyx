@@ -1,5 +1,7 @@
 package postgres.orm
 
+use core
+use runtime
 use runtime.info {
     get_type_info,
     Type_Info_Enum

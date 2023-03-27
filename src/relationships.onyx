@@ -1,6 +1,6 @@
 package postgres.orm
 
-use core
+use core {package, *}
 
 #inject
 ORMContext.load_related :: (ctx: ^ORMContext, obj_: any) {

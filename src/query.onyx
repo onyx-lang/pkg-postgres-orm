@@ -1,6 +1,6 @@
 package postgres.orm
 
-use core
+use core {package, *}
 
 // @Cleanup
 // There are many procedures in this file that should be made
