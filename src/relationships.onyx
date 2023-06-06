@@ -32,7 +32,7 @@ load_has_one :: (ctx: ^ORMContext, obj: any, model: ^ORMModel, rel: ^ORMRelation
     key := do {
         col := model.primary_col; 
         if !string.empty(has_one_rel.local_key) {
-            col = array.find(model.cols, #(it.name == has_one_rel.local_key));
+            col = array.find(model.cols, [](it.name == has_one_rel.local_key));
         }
         
         return ^model.cols[col];
@@ -60,7 +60,7 @@ load_belongs_to :: (ctx: ^ORMContext, obj: any, model: ^ORMModel, rel: ^ORMRelat
 
     obj_base := cast([^] u8) obj.data;
     key := do {
-        col := array.find(model.cols, #(it.name == belongs_to_rel.local_key));
+        col := array.find(model.cols, [](it.name == belongs_to_rel.local_key));
         return ^model.cols[col];
     };
 
@@ -98,7 +98,7 @@ load_has_many :: (ctx: ^ORMContext, obj: any, model: ^ORMModel, rel: ^ORMRelatio
     key := do {
         col := model.primary_col; 
         if !string.empty(has_many_rel.local_key) {
-            col = array.find(model.cols, #(it.name == has_many_rel.local_key));
+            col = array.find(model.cols, [](it.name == has_many_rel.local_key));
         }
         
         return ^model.cols[col];

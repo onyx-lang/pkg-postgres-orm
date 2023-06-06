@@ -173,7 +173,7 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
         }
 
         struct_info := cast(^runtime.info.Type_Info_Struct) type_info;
-        tag := array.first(struct_info.tags, #(it.type == postgres.orm.model));
+        tag := array.first(struct_info.tags, [](it.type == postgres.orm.model));
         if tag == null do continue;
 
         model_data := cast(^model) tag.data;
@@ -314,7 +314,7 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
                         continue;
                     }
 
-                    if !array.contains(it.value.cols, #(it.name == belongs_to_rel.local_key)) {
+                    if !array.contains(it.value.cols, [](it.name == belongs_to_rel.local_key)) {
                         printf("[ERROR] In model '{}', belongs_to relationship '{}' is not valid because '{}' is not a member of '{}'.\n",
                             it.value.type_info.name, rel.member_info.name, belongs_to_rel.local_key, it.value.type_info.name);
                         continue;
@@ -364,13 +364,13 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
                         continue;
                     }
 
-                    if !array.contains(in_between_model.cols, #(it.name == many_to_many_rel.lookup_key)) {
+                    if !array.contains(in_between_model.cols, [](it.name == many_to_many_rel.lookup_key)) {
                         printf("[ERROR] In model '{}', many_to_many relationship '{}' is not valid because '{}' is not a member of '{}'.\n",
                             it.value.type_info.name, rel.member_info.name, many_to_many_rel.lookup_key, in_between_model.type_info.name);
                         continue;
                     }
 
-                    if !array.contains(in_between_model.cols, #(it.name == many_to_many_rel.result_key)) {
+                    if !array.contains(in_between_model.cols, [](it.name == many_to_many_rel.result_key)) {
                         printf("[ERROR] In model '{}', many_to_many relationship '{}' is not valid because '{}' is not a member of '{}'.\n",
                             it.value.type_info.name, rel.member_info.name, many_to_many_rel.result_key, in_between_model.type_info.name);
                         continue;
@@ -392,7 +392,7 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
                     col.foreign.key = foreign_model.cols[foreign_model.primary_col].name;
                 }
 
-                if array.find(foreign_model.cols, #(it.name == col.foreign.key)) < 0 {
+                if array.find(foreign_model.cols, [](it.name == col.foreign.key)) < 0 {
                     printf("[ERROR] In model '{}', foreign key '{}' is not valid because '{}' is not a column of '{}'.\n",
                         it.value.type_info.name, col.name, col.foreign.key, col.foreign.model);
                     continue;
@@ -500,8 +500,7 @@ prepare_models_in_database :: (ctx: ^ORMContext) {
     defer delete(^to_create);
 
     for^ entry: ctx.models.entries {
-        if !array.contains(existing_tables,
-            #(it.table_name == entry.value.table_name && it.table_schema == entry.value.schema_name)) {
+        if !array.contains(existing_tables, [t](t.table_name == entry.value.table_name && t.table_schema == entry.value.schema_name)) {
 
             to_create << ^entry.value;
         }
@@ -529,7 +528,7 @@ prepare_models_in_database :: (ctx: ^ORMContext) {
                 entry.value.schema_name, entry.value.table_name));
 
         for^ col: entry.value.cols {
-           if !array.contains(columns, #(it.column_name == col.name)) {
+           if !array.contains(columns, [](it.column_name == col.name)) {
                if !add_column_to_model(ctx, ^entry.value, col) {
                    printf("[ERROR] Failed to add column '{}'.\n", col.name);
                }

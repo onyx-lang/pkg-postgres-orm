@@ -218,8 +218,8 @@ ORMContext.link :: (ctx: ^ORMContext, elem1_: any, elem2_: any) -> rawptr {
     join_object := new(join_type, ctx.instance_allocator);
     join_model  := ^ctx.models[join_type];
 
-    pk1_link_offset := array.first(join_model.cols, #(it.name == many_to_many_rel.lookup_key)).member_info.offset;
-    pk2_link_offset := array.first(join_model.cols, #(it.name == many_to_many_rel.result_key)).member_info.offset;
+    pk1_link_offset := array.first(join_model.cols, [](it.name == many_to_many_rel.lookup_key)).member_info.offset;
+    pk2_link_offset := array.first(join_model.cols, [](it.name == many_to_many_rel.result_key)).member_info.offset;
 
     // join_object.key1 = elem1.key1
     memory.copy(cast([^] u8) join_object + pk1_link_offset,
