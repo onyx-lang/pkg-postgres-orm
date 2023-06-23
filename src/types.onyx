@@ -50,5 +50,5 @@ onyx_type_to_postgres_type :: (type: type_expr) -> str {
         }
     }
 
-    return registered_types[type];
+    return registered_types[type] ?? "";
 }

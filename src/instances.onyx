@@ -46,7 +46,7 @@ lookup_or_create_instances :: (ctx: ^ORMContext, type: type_expr, res: ^postgres
         primary_key := res->get_value(row, primary_idx);
         id          := ORMInstanceKey.{type, primary_key};
 
-        instance_pointer := ctx.instances[id];
+        instance_pointer := ctx.instances[id] ?? null;
         if instance_pointer == null {
             id.value         = string.alloc_copy(primary_key, ctx.instance_allocator);
 
