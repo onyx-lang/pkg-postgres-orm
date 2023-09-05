@@ -13,6 +13,8 @@ QueryBuilder :: struct {
     // the allocated above. They should always be freed
     // after the query is done.
     selection: str;
+    selection_name: str;
+    joins:     [..] struct {kind: JoinKind; model: &ORMModel; name: str; cond: str};
     filters:   [..] str;
     havings:   [..] str;
     ordering:  [..] struct {field: str; ordering: QueryOrdering};
@@ -25,10 +27,11 @@ QueryBuilder :: struct {
 }
 
 #inject
-QueryBuilder.init :: (qb: ^QueryBuilder, type: type_expr, ctx: ^ORMContext) {
+QueryBuilder.init :: (qb: ^QueryBuilder, type: type_expr, ctx: ^ORMContext, from_name := "") {
     qb.allocator = ctx.allocator;
     qb.ormctx = ctx;
     qb.table_type = type;
+    qb.selection_name = from_name;
 
     qb.model = ^ctx.models[qb.table_type];
     if qb.model == null do return;
@@ -69,6 +72,29 @@ QueryBuilder.free :: (qb: ^QueryBuilder) {
 #inject
 QueryBuilder.select :: (qb: ^QueryBuilder, selection: str) => {
     qb.selection = string.alloc_copy(selection, qb.allocator);
+    return qb;
+}
+
+
+JoinKind :: enum {
+    Inner;
+    Left;
+    Right;
+    Full;
+}
+
+#inject
+QueryBuilder.join :: (qb: &QueryBuilder, join_kind: JoinKind, table: type_expr, name: str, cond: str) => {
+    model := &qb.ormctx.models[table];
+    if model == null do return qb;
+
+    qb.joins << .{
+        join_kind,
+        model,
+        string.alloc_copy(name, qb.allocator),
+        string.alloc_copy(cond, qb.allocator)
+    };
+
     return qb;
 }
 
@@ -198,6 +224,8 @@ QueryBuilder.all :: (qb: ^QueryBuilder, alternate_return_type := void) -> [] raw
     if res->status() != .Tuples_Ok {
         return .[];
     }
+
+    logf(.Info, "STATUS: {}", alternate_return_type);
 
     if alternate_return_type == void && qb.model.primary_col >= 0 {
         instances := lookup_or_create_instances(qb.ormctx, qb.table_type, ^res);
@@ -341,7 +369,18 @@ build_select_query_string :: (qb: ^QueryBuilder) -> str {
         return qb.selection;
     };
 
-    io.write(^select_writer, "SELECT {} FROM \"{}\".\"{}\"", selection, qb.model.schema_name, qb.model.table_name);
+    io.write(^select_writer, "SELECT {} FROM \"{}\".\"{}\" {}", selection, qb.model.schema_name, qb.model.table_name, qb.selection_name);
+
+    for& qb.joins {
+        switch it.kind {
+            case .Inner do io.write(&select_writer, " INNER JOIN ");
+            case .Left  do io.write(&select_writer, " LEFT JOIN ");
+            case .Right do io.write(&select_writer, " RIGHT JOIN ");
+            case .Full  do io.write(&select_writer, " FULL JOIN ");
+        }
+
+        io.write(&select_writer, "{\"}.{\"} {\"} ON {}", it.model.schema_name, it.model.table_name, it.name, it.cond);
+    }
 
     if qb.filters.length > 0 {
         io.write(^select_writer, " WHERE ");

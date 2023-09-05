@@ -26,19 +26,26 @@ Query :: struct (table_type: type_expr) {
 }
 
 #inject
-ORMContext.query :: (ctx: ^ORMContext, $type: type_expr) -> Query(type) {
+ORMContext.query :: (ctx: ^ORMContext, $type: type_expr, name := "") -> Query(type) {
     Query :: Query
     QueryBuilder :: QueryBuilder
 
     q: Query(type);
     q.builder = new(QueryBuilder, allocator=ctx.allocator);
-    q.builder->init(type, ctx);
+    q.builder->init(type, ctx, name);
     return q;
 }
 
 #inject
 Query.select :: (q: Query, selection: str) => {
     q.builder->select(selection);
+    return q;
+}
+
+
+#inject
+Query.join :: (q: Query, join_kind: JoinKind, table: type_expr, name: str, cond: str) => {
+    q.builder->join(join_kind, table, name, cond);
     return q;
 }
 
@@ -129,14 +136,14 @@ Query.offset :: (q: Query, offset: u32) => {
 Query.all :: #match #local {}
 
 #overload
-Query.all :: (q: Query) -> [] ^q.table_type {
-    return ~~ q.builder->all();
+Query.all :: (q: Query($T), $return_type: type_expr) -> [] ^return_type {
+    results := q.builder->all(return_type); 
+    return .{ data = ~~ results.data, count = results.count };
 }
 
 #overload
-Query.all :: macro (q: Query, $return_type: type_expr) -> [] ^return_type {
-    q_ := q;
-    return ~~ q_.builder->all(return_type);
+Query.all :: (q: Query) -> [] ^q.table_type {
+    return ~~ q.builder->all();
 }
 
 #inject

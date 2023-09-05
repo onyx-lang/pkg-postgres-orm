@@ -27,9 +27,7 @@ onyx_type_to_postgres_type :: (type: type_expr) -> str {
 
         case str      do return "text";
 
-        #if #defined(json) {
-            case json.Json do return "json";
-        }
+        case core.encoding.json.Value do return "json";
 
         #if #defined(core.time.Date) {
             case core.time.Date do return "Date";
