@@ -225,8 +225,6 @@ QueryBuilder.all :: (qb: ^QueryBuilder, alternate_return_type := void) -> [] raw
         return .[];
     }
 
-    logf(.Info, "STATUS: {}", alternate_return_type);
-
     if alternate_return_type == void && qb.model.primary_col >= 0 {
         instances := lookup_or_create_instances(qb.ormctx, qb.table_type, ^res);
         defer delete(^instances);
