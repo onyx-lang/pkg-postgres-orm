@@ -356,6 +356,21 @@ QueryBuilder.update :: (qb: ^QueryBuilder, updates: [] ColumnUpdate) -> i32 {
     return res.rows;
 }
 
+#inject
+QueryBuilder.count :: (qb: ^QueryBuilder) -> i32 {
+    if !qb.valid do return -1;
+
+    qb->select("count(*) as count");
+
+    Count :: struct {
+        count: i32;
+    }
+
+    count: &Count = qb->first(Count);
+
+    return count.count;
+}
+
 
 #package
 build_select_query_string :: (qb: ^QueryBuilder) -> str {

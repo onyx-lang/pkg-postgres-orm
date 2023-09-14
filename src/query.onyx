@@ -177,5 +177,8 @@ Query.update :: (q: Query, field: str, value: any) -> i32 {
     return q.builder->update(field, value);
 }
 
-
+#inject
+Query.count :: (q: Query) -> i32 {
+    return q.builder->count();
+}
 
