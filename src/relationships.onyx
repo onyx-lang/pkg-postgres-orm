@@ -3,7 +3,7 @@ package postgres.orm
 use core {package, *}
 
 #inject
-ORMContext.load_related :: (ctx: ^ORMContext, obj_: any) {
+ORMContext.load_related :: (ctx: ^ORMContext, obj_: any, field_name: ? str = .{}) {
     obj := obj_;
     if !strip_pointer_and_check_model(ctx, ^obj, require_primary_key=false) do return;
     if obj.data == null do return;
@@ -11,6 +11,10 @@ ORMContext.load_related :: (ctx: ^ORMContext, obj_: any) {
     model := ^ctx.models[obj.type];
 
     for^ rel: model.relationships {
+        field_name->with([name] {
+            if rel.member_info.name != name do continue;
+        });
+
         switch rel.relation_type {
             case has_one      do load_has_one(ctx, obj, model, rel);
             case belongs_to   do load_belongs_to(ctx, obj, model, rel);

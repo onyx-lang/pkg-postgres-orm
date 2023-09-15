@@ -120,6 +120,13 @@ Query.group :: (q: Query, group_format: str, values: .. any) => {
 
 
 #inject
+Query.include :: (q: Query, inclusions: ..str) => {
+    q.builder->include(cast([] str) inclusions);
+    return q;
+}
+
+
+#inject
 Query.limit :: (q: Query, limit: u32) => {
     q.builder.limit = limit;
     return q;

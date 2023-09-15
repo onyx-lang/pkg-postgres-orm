@@ -77,9 +77,7 @@ strip_pointer_and_check_model :: (ctx: ^ORMContext, data: ^any, require_primary_
     // This procedure expects data to be a pointer to
     // a model, so first the pointer type has to be
     // stripped off and checked.
-    if info := get_type_info(data.type); info.kind != .Pointer {
-        return false;
-    } else {
+    if info := get_type_info(data.type); info.kind == .Pointer {
         data.type = (cast(^Type_Info_Pointer) info).to;
         data.data = *cast(^rawptr) data.data;
     }

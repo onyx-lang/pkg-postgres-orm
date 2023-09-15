@@ -14,11 +14,12 @@ QueryBuilder :: struct {
     // after the query is done.
     selection: str;
     selection_name: str;
-    joins:     [..] struct {kind: JoinKind; model: &ORMModel; name: str; cond: str};
-    filters:   [..] str;
-    havings:   [..] str;
-    ordering:  [..] struct {field: str; ordering: QueryOrdering};
-    grouping:  [..] str;
+    joins:      [..] struct {kind: JoinKind; model: &ORMModel; name: str; cond: str};
+    filters:    [..] str;
+    havings:    [..] str;
+    ordering:   [..] struct {field: str; ordering: QueryOrdering};
+    grouping:   [..] str;
+    inclusions: [..] str;
 
     query_limit := 0;
     query_offset := 0;
@@ -38,10 +39,12 @@ QueryBuilder.init :: (qb: ^QueryBuilder, type: type_expr, ctx: ^ORMContext, from
 
     qb.valid = true;
 
+    array.init(^qb.joins,  allocator=qb.allocator);
     array.init(^qb.filters,  allocator=qb.allocator);
     array.init(^qb.havings,  allocator=qb.allocator);
     array.init(^qb.ordering, allocator=qb.allocator);
     array.init(^qb.grouping, allocator=qb.allocator);
+    array.init(^qb.inclusions, allocator=qb.allocator);
 }
 
 #inject
@@ -198,6 +201,22 @@ QueryBuilder.group :: (qb: ^QueryBuilder, group_format: str, va: ..any) => {
 }
 
 
+#inject
+QueryBuilder.include :: #match #local {}
+
+#overload
+QueryBuilder.include :: (qb: &QueryBuilder, inclusions: [] str) => {
+    array.concat(&qb.inclusions, inclusions);
+    return qb;
+}
+
+#overload
+QueryBuilder.include :: (qb: &QueryBuilder, inclusions: ..str) => {
+    qb->include(cast([] str) inclusions);
+    return qb;
+}
+
+
 
 #inject
 QueryBuilder.limit :: (qb: ^QueryBuilder, limit: u32) => {
@@ -225,10 +244,12 @@ QueryBuilder.all :: (qb: ^QueryBuilder, alternate_return_type := void) -> [] raw
         return .[];
     }
 
+    output: [] rawptr;
+
     if alternate_return_type == void && qb.model.primary_col >= 0 {
         instances := lookup_or_create_instances(qb.ormctx, qb.table_type, ^res);
         defer delete(^instances);
-        return ~~ array.copy(instances, context.temp_allocator);
+        output = ~~ array.copy(instances, context.temp_allocator);
 
     } else {
         //
@@ -240,15 +261,24 @@ QueryBuilder.all :: (qb: ^QueryBuilder, alternate_return_type := void) -> [] raw
             alternate_return_type = qb.table_type;
         }
 
-        results := make([] rawptr, res.rows);
+        results := make([] rawptr, res.rows, context.temp_allocator);
         for res.rows {
             instance_pointer := new(alternate_return_type, qb.ormctx.instance_allocator);
             postgres.result_to_struct(^res, it, alternate_return_type, ~~ instance_pointer, qb.ormctx.instance_allocator);
             results[it] = instance_pointer;
         }
 
-        return results;
+        output = results;
     }
+
+    if qb.inclusions && alternate_return_type == void {
+        // TODO fix the n+1 problem here.
+        for output {
+            process_inclusions(qb, it, qb.table_type, qb.inclusions);
+        }
+    }
+
+    return output;
 }
 
 #inject
@@ -265,12 +295,14 @@ QueryBuilder.first :: (qb: ^QueryBuilder, alternate_return_type := void) -> rawp
         return null;
     }
 
+    output: rawptr;
+
     if alternate_return_type == void && qb.model.primary_col >= 0 {
         instances := lookup_or_create_instances(qb.ormctx, qb.table_type, ^res);
         defer if instances.count > 0 do delete(^instances);
 
         if instances.count == 0 do return null;
-        return ~~ instances.data[0];
+        output = ~~ instances.data[0];
 
     } else {
         //
@@ -281,8 +313,14 @@ QueryBuilder.first :: (qb: ^QueryBuilder, alternate_return_type := void) -> rawp
 
         instance_pointer := new(alternate_return_type, qb.ormctx.instance_allocator);
         postgres.result_to_struct(^res, 0, alternate_return_type, ~~ instance_pointer, qb.ormctx.instance_allocator);
-        return ~~ instance_pointer;
+        output = ~~ instance_pointer;
     }
+
+    if qb.inclusions && alternate_return_type == void {
+        process_inclusions(qb, output, qb.table_type, qb.inclusions);
+    }
+
+    return output;
 }
 
 #inject
@@ -517,5 +555,13 @@ escape_any_args :: (qb: ^QueryBuilder, values: [] any) {
 
             *cast(^rawptr) ^it.data = value;
         }
+    }
+}
+
+
+#local
+process_inclusions :: (qb: &QueryBuilder, value: rawptr, type: type_expr, inclusions: [] str) {
+    for inclusions {
+        qb.ormctx->load_related(.{ value, type }, it);
     }
 }
