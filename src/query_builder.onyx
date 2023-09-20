@@ -545,11 +545,13 @@ build_update_query_string :: (qb: ^QueryBuilder, updates: [] ColumnUpdate) -> st
 
 #package
 escape_any_args :: (qb: ^QueryBuilder, values: [] any) {
+    conn := qb.ormctx->get_conn()?;
+
     for^ values {
         if it.type == str {
             s := *cast(^str) it.data;
 
-            tmp := postgres.escape_str(qb.ormctx.conn, s, context.temp_allocator);
+            tmp := postgres.escape_str(conn, s, context.temp_allocator);
             value := cast(^str) raw_alloc(context.temp_allocator, sizeof str);
             *value = tmp;
 

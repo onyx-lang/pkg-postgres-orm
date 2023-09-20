@@ -33,7 +33,10 @@ use runtime.info {
 ORMContext :: struct {
     allocator: Allocator;
 
-    conn: postgres.Connection;
+    conn_maker: () -> postgres.Connection;
+
+    // Cached connection
+    _conn: ? postgres.Connection;
 
     // All known models types and information
     models: Map(type_expr, ORMModel);
@@ -95,13 +98,13 @@ ORMRelation :: struct {
 
 #doc "Creates a new ORMContext instance. This is the root object needed for all ORM related functionality."
 create :: (
-    conn: postgres.Connection,
+    conn_maker: () -> postgres.Connection,
     allocator := context.allocator
     ) -> ^ORMContext {
     
     ctx := new(ORMContext, allocator=allocator);
     ctx.allocator = allocator;
-    ctx.conn = conn;
+    ctx.conn_maker = conn_maker;
     ctx.models = make(typeof ctx.models, allocator);
     ctx.instances = make(typeof ctx.instances, allocator);
 
@@ -131,6 +134,24 @@ close :: (ctx: ^ORMContext) {
 
     arena_free(^ctx.instance_arena);
     raw_free(ctx.allocator, ctx);
+}
+
+
+#doc """
+    Returns the cached connection used by the ORM, or makes a new connection
+    using the connection maker provided at initialization.
+"""
+#inject
+ORMContext.get_conn :: (ctx: &ORMContext) -> ? postgres.Connection {
+    ctx._conn->with([conn] {
+        if conn->status() == .Ok do return conn;
+
+        // Bad connection, close it and reopen
+        conn->finish();
+    });
+
+    ctx._conn = ctx.conn_maker();
+    return ctx._conn;
 }
 
 
