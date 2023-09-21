@@ -262,9 +262,13 @@ QueryBuilder.all :: (qb: ^QueryBuilder, alternate_return_type := void) -> [] raw
         }
 
         results := make([] rawptr, res.rows, context.temp_allocator);
+
+        state := qb.ormctx->get_state();
+        instance_allocator := state->instance_allocator();
+
         for res.rows {
-            instance_pointer := new(alternate_return_type, qb.ormctx.instance_allocator);
-            postgres.result_to_struct(^res, it, alternate_return_type, ~~ instance_pointer, qb.ormctx.instance_allocator);
+            instance_pointer := new(alternate_return_type, instance_allocator);
+            postgres.result_to_struct(^res, it, alternate_return_type, ~~ instance_pointer, instance_allocator);
             results[it] = instance_pointer;
         }
 
@@ -311,8 +315,11 @@ QueryBuilder.first :: (qb: ^QueryBuilder, alternate_return_type := void) -> rawp
             alternate_return_type = qb.table_type;
         }
 
-        instance_pointer := new(alternate_return_type, qb.ormctx.instance_allocator);
-        postgres.result_to_struct(^res, 0, alternate_return_type, ~~ instance_pointer, qb.ormctx.instance_allocator);
+        state := qb.ormctx->get_state();
+        instance_allocator := state->instance_allocator();
+
+        instance_pointer := new(alternate_return_type, instance_allocator);
+        postgres.result_to_struct(^res, 0, alternate_return_type, ~~ instance_pointer, instance_allocator);
         output = ~~ instance_pointer;
     }
 

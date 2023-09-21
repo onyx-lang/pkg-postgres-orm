@@ -7,6 +7,9 @@ use core.alloc.arena {
     arena_clear :: clear,
     arena_free  :: free
 }
+use core.alloc.atomic {
+    AtomicAllocator
+}
 use runtime
 use runtime.info {
     size_of, 
@@ -41,13 +44,19 @@ ORMContext :: struct {
     // All known models types and information
     models: Map(type_expr, ORMModel);
 
-    // All active instances of models
+    // All active instances of models, per thread
+    thread_state: Map(u32, ORMState);
+
+    log_sql_statements := false;
+}
+
+#doc "Represents the state of the ORM, as seen per thread. This stores active instances of objects loaded from the database."
+ORMState :: struct {
     instances: Map(ORMInstanceKey, rawptr);
 
     instance_arena: ArenaState;
-    instance_allocator: Allocator;
 
-    log_sql_statements := false;
+    instance_allocator :: (self) => alloc.as_allocator(&self.instance_arena);
 }
 
 #doc "Represents a model known by ORM."
@@ -106,17 +115,16 @@ create :: (
     ctx.allocator = allocator;
     ctx.conn_maker = conn_maker;
     ctx.models = make(typeof ctx.models, allocator);
-    ctx.instances = make(typeof ctx.instances, allocator);
-
-    ctx.instance_arena = make_arena(allocator, 4 * 1024 * 1024); // @Cleanup
-    ctx.instance_allocator = alloc.as_allocator(^ctx.instance_arena);
 
     return ctx;
 }
 
 #doc "Frees everything related to the ORM context. Use this when you are completely done using the context."
 close :: (ctx: ^ORMContext) {
-    ctx->flush();
+    for thread_state: iter.as_iter(ctx.thread_state) {
+        delete(&thread_state.value.instances);
+        arena_free(&thread_state.value.instance_arena);
+    }
 
     for^ ctx.models.entries {
         delete(^it.value.relationships, ctx.allocator);
@@ -130,9 +138,6 @@ close :: (ctx: ^ORMContext) {
     }
 
     delete(^ctx.models);
-    delete(^ctx.instances);
-
-    arena_free(^ctx.instance_arena);
     raw_free(ctx.allocator, ctx);
 }
 
@@ -154,6 +159,19 @@ ORMContext.get_conn :: (ctx: &ORMContext) -> ? postgres.Connection {
     return ctx._conn;
 }
 
+#inject
+ORMContext.get_state :: (ctx: &ORMContext) -> &ORMState {
+    state := ctx.thread_state->get_ptr(context.thread_id);
+    if state do return state;
+
+    new_state: ORMState;
+    new_state.instances = make(typeof new_state.instances, ctx.allocator);
+    new_state.instance_arena = make_arena(ctx.allocator, 4 * 1024 * 1024); // @Cleanup
+
+    ctx.thread_state->put(context.thread_id, new_state);
+    return ctx.thread_state->get_ptr(context.thread_id);
+}
+
 
 #doc """
     Finds all models defined in the program and ensures that a table is created for each of them.
@@ -172,9 +190,9 @@ ORMContext.auto_migrate :: (ctx: ^ORMContext) -> bool {
     Use this when you are done working with objects (e.g. at the end of an HTTP request)
 """
 #inject
-ORMContext.flush :: (ctx: ^ORMContext) {
-    ctx.instances->clear();
-    arena_clear(^ctx.instance_arena);
+ORMState.flush :: (state: &ORMState) {
+    state.instances->clear();
+    arena_clear(^state.instance_arena);
 }
 
 

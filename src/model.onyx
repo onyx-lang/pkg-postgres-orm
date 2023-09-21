@@ -74,7 +74,8 @@ internal_add :: (ctx: ^ORMContext, data: any) -> rawptr {
             return instances[0];
 
         } else {
-            new_data := new(data.type, ctx.instance_allocator);
+            state := ctx->get_state();
+            new_data := new(data.type, state->instance_allocator());
             postgres.result_to_struct(^res, 0, data.type, ~~ new_data, ctx.allocator);
             res->clear();
             return new_data;
@@ -215,7 +216,8 @@ ORMContext.link :: (ctx: ^ORMContext, elem1_: any, elem2_: any) -> rawptr {
 
     if join_type == void do return null;
 
-    join_object := new(join_type, ctx.instance_allocator);
+    state := ctx->get_state();
+    join_object := new(join_type, state->instance_allocator());
     join_model  := ^ctx.models[join_type];
 
     pk1_link_offset := array.first(join_model.cols, [](it.name == many_to_many_rel.lookup_key)).member_info.offset;

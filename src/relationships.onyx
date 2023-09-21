@@ -119,7 +119,7 @@ load_has_many :: (ctx: ^ORMContext, obj: any, model: ^ORMModel, rel: ^ORMRelatio
     result := q->all();
 
     output := cast(^[] rawptr) (obj_base + rel.member_info.offset);
-    *output = make([] rawptr, result.count, ctx.instance_allocator);
+    *output = make([] rawptr, result.count, ctx->get_state()->instance_allocator());
 
     for result.count {
         output.data[it] = result[it];
@@ -185,7 +185,7 @@ load_many_to_many :: (ctx: ^ORMContext, obj: any, model: ^ORMModel, rel: ^ORMRel
     };
 
     output := cast(^[] rawptr) (obj_base + rel.member_info.offset);
-    *output = make([] rawptr, result.count, ctx.instance_allocator);
+    *output = make([] rawptr, result.count, ctx->get_state()->instance_allocator());
 
     for result.count {
         output.data[it] = result[it];

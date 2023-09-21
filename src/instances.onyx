@@ -42,19 +42,22 @@ lookup_or_create_instances :: (ctx: ^ORMContext, type: type_expr, res: ^postgres
 
     primary_col := ^model.cols[primary_idx];
 
+    state := ctx->get_state();
+    instance_allocator := state->instance_allocator();
+
     for row: res.rows {
         primary_key := res->get_value(row, primary_idx);
         id          := ORMInstanceKey.{type, primary_key};
 
-        instance_pointer := ctx.instances[id] ?? null;
+        instance_pointer := state.instances[id] ?? null;
         if instance_pointer == null {
-            id.value         = string.alloc_copy(primary_key, ctx.instance_allocator);
+            id.value         = string.alloc_copy(primary_key, instance_allocator);
 
-            instance_pointer = new(type, ctx.instance_allocator);
-            ctx.instances[id] = instance_pointer;
+            instance_pointer = new(type, instance_allocator);
+            state.instances[id] = instance_pointer;
         }
 
-        postgres.result_to_struct(res, row, type, ~~ instance_pointer, ctx.instance_allocator);
+        postgres.result_to_struct(res, row, type, ~~ instance_pointer, instance_allocator);
         result << instance_pointer;
     }
 
