@@ -38,9 +38,6 @@ ORMContext :: struct {
 
     conn_maker: () -> postgres.Connection;
 
-    // Cached connection
-    _conn: ? postgres.Connection;
-
     // All known models types and information
     models: Map(type_expr, ORMModel);
 
@@ -52,6 +49,9 @@ ORMContext :: struct {
 
 #doc "Represents the state of the ORM, as seen per thread. This stores active instances of objects loaded from the database."
 ORMState :: struct {
+    // Cached connection
+    _conn: ? postgres.Connection;
+
     instances: Map(ORMInstanceKey, rawptr);
 
     instance_arena: ArenaState;
@@ -148,15 +148,17 @@ close :: (ctx: ^ORMContext) {
 """
 #inject
 ORMContext.get_conn :: (ctx: &ORMContext) -> ? postgres.Connection {
-    ctx._conn->with([conn] {
+    state := ctx->get_state();
+
+    state._conn->with([conn] {
         if conn->status() == .Ok do return conn;
 
         // Bad connection, close it and reopen
         conn->finish();
     });
 
-    ctx._conn = ctx.conn_maker();
-    return ctx._conn;
+    state._conn = ctx.conn_maker();
+    return state._conn;
 }
 
 #inject
@@ -165,6 +167,7 @@ ORMContext.get_state :: (ctx: &ORMContext) -> &ORMState {
     if state do return state;
 
     new_state: ORMState;
+    new_state._conn = .{};
     new_state.instances = make(typeof new_state.instances, ctx.allocator);
     new_state.instance_arena = make_arena(ctx.allocator, 4 * 1024 * 1024); // @Cleanup
 
