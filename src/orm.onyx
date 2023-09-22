@@ -43,6 +43,7 @@ ORMContext :: struct {
 
     // All active instances of models, per thread
     thread_state: Map(u32, ORMState);
+    thread_state_mutex: sync.Mutex;
 
     log_sql_statements := false;
 }
@@ -115,6 +116,8 @@ create :: (
     ctx.allocator = allocator;
     ctx.conn_maker = conn_maker;
     ctx.models = make(typeof ctx.models, allocator);
+    ctx.thread_state = make(typeof ctx.thread_state, allocator);
+    sync.mutex_init(&ctx.thread_state_mutex);
 
     return ctx;
 }
@@ -171,7 +174,10 @@ ORMContext.get_state :: (ctx: &ORMContext) -> &ORMState {
     new_state.instances = make(typeof new_state.instances, ctx.allocator);
     new_state.instance_arena = make_arena(ctx.allocator, 4 * 1024 * 1024); // @Cleanup
 
-    ctx.thread_state->put(context.thread_id, new_state);
+    sync.critical_section(&ctx.thread_state_mutex) {
+        ctx.thread_state->put(context.thread_id, new_state);
+    }
+
     return ctx.thread_state->get_ptr(context.thread_id);
 }
 
