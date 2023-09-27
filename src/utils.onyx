@@ -4,6 +4,7 @@ use core {package, *}
 use runtime
 use runtime.info {
     get_type_info,
+    union_constructed_from,
     Type_Info_Pointer
 }
 
@@ -44,7 +45,17 @@ is_zero_value :: (z: any) -> bool {
     writer, after escaping it using 'escape_str' from
     the postgres package.
 """
-write_escaped_value :: (ctx: ^ORMContext, w: ^io.Writer, v: any) {
+write_escaped_value :: (ctx: ^ORMContext, w: ^io.Writer, v_: any) {
+    v := v_;
+    if union_constructed_from(v.type, Optional) {
+        if cast(&Optional(void), v.data).tag == .None {
+            io.write(w, "null");
+            return;
+        }
+
+        v = core.misc.any_unwrap(v);
+    }
+
     formatted_string := conv.format_va("{d}", .[v]);
     defer delete(^formatted_string);
 

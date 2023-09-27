@@ -258,12 +258,12 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
             col.name = string.alloc_copy(member.name, allocator=ctx.allocator)
                     |> string.to_lowercase();
 
+            col.member_info = member;
             col.onyx_default = member.default;
             col.onyx_type = member.type;
             col.type = onyx_type_to_postgres_type(member.type);
-            col.member_info = member;
 
-            if col.type.length == 0 {
+            if !col.type {
                 printf("[ERROR] '{}' is not a known type for the Postgres ORM.\n", col.onyx_type);
                 model_valid = false;
                 continue;

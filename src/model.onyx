@@ -309,7 +309,8 @@ get_columns_from_value :: (model: ^ORMModel, data: any, skip_primary_key := fals
 
         // @TODO Double check this condition because it does not make
         // complete sense to me right now.
-        if !is_zero_value(value) ||
+        if runtime.info.union_constructed_from(it.onyx_type, Optional) ||
+            !is_zero_value(value) ||
             (it.not_null && !(it->has_default())) {
             cols << .{ it.name, value };
         }

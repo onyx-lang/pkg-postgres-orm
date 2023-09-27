@@ -4,6 +4,7 @@ use core
 use runtime
 use runtime.info {
     get_type_info,
+    union_constructed_from,
     Type_Info_Enum
 }
 
@@ -15,7 +16,12 @@ register_type :: (type: type_expr, pg_type: str) {
 }
 
 #package
-onyx_type_to_postgres_type :: (type: type_expr) -> str {
+onyx_type_to_postgres_type :: (type_: type_expr) -> str {
+    type := type_;
+    if union_constructed_from(type, Optional) {
+        type = type->info()->as_union().variants[1].type;
+    }
+
     switch type {
         case bool     do return "bool";
         case i8, u8   do return "character";

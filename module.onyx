@@ -1,7 +1,5 @@
 package postgres.orm
 
-#load "./../postgres/module"
-
 #load_all "./src"
 
 #package {
