@@ -57,6 +57,10 @@ section :: struct {
 
 end_section :: #distinct void
 
+column_name :: struct {
+    name: str;
+}
+
 #local
 ReferentialAction :: enum {
     No_Action;

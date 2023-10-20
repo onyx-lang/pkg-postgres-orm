@@ -255,9 +255,6 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
             }
 
             col: ORMCol;
-            col.name = string.alloc_copy(member.name, allocator=ctx.allocator)
-                    |> string.to_lowercase();
-
             col.member_info = member;
             col.onyx_default = member.default;
             col.onyx_type = member.type;
@@ -324,9 +321,18 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
 
                     col.foreign = cast(^foreign_key) tag.data;
                 }
+
+                if tag.type == column_name {
+                    col.name = (cast(&column_name) tag.data).name;
+                }
             }
 
             col.constraints = constraints;
+
+            if !col.name {
+                col.name = string.alloc_copy(member.name, allocator=ctx.allocator)
+                        |> string.to_lowercase();
+            }
 
             cols << col;
         }
