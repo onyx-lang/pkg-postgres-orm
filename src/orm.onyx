@@ -325,6 +325,10 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
                 if tag.type == column_name {
                     col.name = (cast(&column_name) tag.data).name;
                 }
+
+                if tag.type == postgres.MapColumn {
+                    col.name = (cast(&postgres.MapColumn) tag.data).name;
+                }
             }
 
             col.constraints = constraints;
