@@ -104,8 +104,7 @@ ORMContext.save :: (ctx: ^ORMContext, data_: any) -> bool {
     q->init(data.type, ctx);
 
     primary_key := ^model.cols[model.primary_col];
-    q->filter("\"{}\"={'d}", any.[
-        .{ ^primary_key.name, str },
+    q->filter(tprintf("{\"}=%", primary_key.name), any.[
         .{
             cast([^] u8) data.data + primary_key.member_info.offset,
             primary_key.onyx_type
@@ -131,8 +130,7 @@ ORMContext.delete :: (ctx: ^ORMContext, data_: any) -> bool {
     q: QueryBuilder;
     q->init(data.type, ctx);
 
-    q->filter("\"{}\"={'d}", any.[
-        .{ ^primary_key.name, str },
+    q->filter(tprintf("{\"}=%", primary_key.name), any.[
         .{
             cast([^] u8) data.data + primary_key.member_info.offset,
             primary_key.onyx_type
@@ -162,8 +160,7 @@ ORMContext.find :: (ctx: ^ORMContext, $T: type_expr, key: any) -> ^T {
     q: QueryBuilder;
     q->init(T, ctx);
 
-    q->filter("\"{}\"={'d}", any.[
-        .{ ^primary_key.name, str },
+    q->filter(tprintf("{\"}=%", primary_key.name), any.[
         key
     ]);
     q->limit(1);
@@ -280,13 +277,11 @@ ORMContext.unlink :: (ctx: ^ORMContext, elem1_: any, elem2_: any) -> bool {
     q: QueryBuilder;
     q->init(join_type, ctx);
 
-    q->filter("\"{}\"={'d}", any.[
-        .{ ^many_to_many_rel.lookup_key, str },
+    q->filter(tprintf("{\"}=%", many_to_many_rel.lookup_key), any.[
         .{ cast([^] u8) elem1.data + pk1.member_info.offset, pk1.onyx_type },
     ]);
 
-    q->filter("\"{}\"={'d}", any.[
-        .{ ^many_to_many_rel.result_key, str },
+    q->filter(tprintf("{\"}=%", many_to_many_rel.result_key), any.[
         .{ cast([^] u8) elem2.data + pk2.member_info.offset, pk2.onyx_type },
     ]);
 

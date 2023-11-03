@@ -79,7 +79,26 @@ ORMContext.exec_log :: (ctx: ^ORMContext, stmt: str) -> postgres.Result {
         log(.Info, "PG-ORM", stmt);
     }
 
-    return ctx->get_conn()->unwrap()->exec(stmt);
+    res := ctx->get_conn()->unwrap()->exec(stmt);
+    if res->status() != .Tuples_Ok {
+        log(.Error, "PG-ORM", res->error_message());
+    }
+
+    return res;
+}
+
+#inject
+ORMContext.exec_params_log :: (ctx: ^ORMContext, stmt: str, params: [] any) -> postgres.Result {
+    if ctx.log_sql_statements {
+        log(.Info, "PG-ORM", stmt);
+    }
+
+    res := ctx->get_conn()->unwrap()->execParams(stmt, params);
+    if res->status() != .Tuples_Ok {
+        log(.Error, "PG-ORM", res->error_message());
+    }
+    
+    return res;
 }
 
 #package

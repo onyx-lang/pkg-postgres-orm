@@ -20,9 +20,12 @@ QueryBuilder :: struct {
     ordering:   [..] struct {field: str; ordering: QueryOrdering};
     grouping:   [..] str;
     inclusions: [..] str;
+    params:     [..] any;
 
     query_limit := 0;
     query_offset := 0;
+
+    next_param_num := 1;
 
     valid := false;
 }
@@ -39,12 +42,15 @@ QueryBuilder.init :: (qb: ^QueryBuilder, type: type_expr, ctx: ^ORMContext, from
 
     qb.valid = true;
 
+    qb.next_param_num = 1;
+
     array.init(^qb.joins,  allocator=qb.allocator);
     array.init(^qb.filters,  allocator=qb.allocator);
     array.init(^qb.havings,  allocator=qb.allocator);
     array.init(^qb.ordering, allocator=qb.allocator);
     array.init(^qb.grouping, allocator=qb.allocator);
     array.init(^qb.inclusions, allocator=qb.allocator);
+    array.init(^qb.params, allocator=qb.allocator);
 }
 
 #inject
@@ -61,10 +67,16 @@ QueryBuilder.free :: (qb: ^QueryBuilder) {
         raw_free(qb.allocator, it.data);
     }
 
+    for qb.params {
+        raw_free(qb.allocator, it.data);
+    }
+
     delete(^qb.filters);
     delete(^qb.havings);
     delete(^qb.ordering);
     delete(^qb.grouping);
+    delete(^qb.params);
+    delete(^qb.inclusions);
 
     if !string.empty(qb.selection) {
         delete(^qb.selection);
@@ -114,11 +126,10 @@ QueryBuilder.filter :: (qb: ^QueryBuilder, filter: str) => {
 
 #overload
 QueryBuilder.filter :: (qb: ^QueryBuilder, filter_format: str, values: [] any) => {
-    escape_any_args(qb, values);
+    processed_filter := process_format_str(qb, filter_format);
+    copy_anys(qb, values, &qb.params);
 
-    filter := conv.format_va(filter_format, values, qb.allocator);
-
-    qb.filters << filter;
+    qb.filters << processed_filter;
     return qb;
 }
 
@@ -141,9 +152,8 @@ QueryBuilder.having :: (qb: ^QueryBuilder, having: str) => {
 
 #overload
 QueryBuilder.having :: (qb: ^QueryBuilder, having_format: str, values: [] any) => {
-    escape_any_args(qb, values);
-
-    having := conv.format_va(having_format, values, qb.allocator);
+    having := process_format_str(qb, having_format);
+    copy_anys(qb, values, &qb.params);
 
     qb.havings << having;
     return qb;
@@ -186,9 +196,8 @@ QueryBuilder.group :: (qb: ^QueryBuilder, group: str) => {
 
 #overload
 QueryBuilder.group :: (qb: ^QueryBuilder, group_format: str, values: [] any) => {
-    escape_any_args(qb, values);
-
-    group := conv.format_va(group_format, values, qb.allocator);
+    group := process_format_str(qb, group_format);
+    copy_anys(qb, values, &qb.params);
 
     qb.grouping << group;
     return qb;
@@ -237,7 +246,7 @@ QueryBuilder.all :: (qb: ^QueryBuilder, alternate_return_type := void) -> [] raw
     if !qb.valid do return .[];
 
     query := build_select_query_string(qb);
-    res := qb.ormctx->exec_log(query);
+    res := qb.ormctx->exec_params_log(query, qb.params);
     defer qb->free();
 
     if res->status() != .Tuples_Ok {
@@ -292,7 +301,7 @@ QueryBuilder.first :: (qb: ^QueryBuilder, alternate_return_type := void) -> rawp
     qb.query_limit = 1;
     query := build_select_query_string(qb);
 
-    res := qb.ormctx->exec_log(query);
+    res := qb.ormctx->exec_params_log(query, qb.params);
     defer qb->free();
 
     if res->status() != .Tuples_Ok {
@@ -341,7 +350,7 @@ QueryBuilder.find :: (qb: ^QueryBuilder, key: any) -> rawptr {
 
     primary_key := ^qb.model.cols[qb.model.primary_col];
 
-    qb->filter("\"{}\"={'d}", .[ .{ ^primary_key.name, str }, key ]);
+    qb->filter(tprintf("{\"}=%", primary_key.name), .[ key ]);
     qb.query_limit = 1;
 
     return qb->first();
@@ -353,7 +362,7 @@ QueryBuilder.delete :: (qb: ^QueryBuilder) -> i32 {
     if !qb.valid do return -1;
 
     query := build_delete_query_string(qb);
-    res := qb.ormctx->exec_log(query);
+    res := qb.ormctx->exec_params_log(query, qb.params);
 
     defer {
         qb->free();
@@ -385,7 +394,7 @@ QueryBuilder.update :: (qb: ^QueryBuilder, updates: [] ColumnUpdate) -> i32 {
     if !qb.valid do return -1;
 
     query := build_update_query_string(qb, updates);
-    res := qb.ormctx->exec_log(query);
+    res := qb.ormctx->exec_params_log(query, qb.params);
 
     defer {
         qb->free();
@@ -572,5 +581,50 @@ escape_any_args :: (qb: ^QueryBuilder, values: [] any) {
 process_inclusions :: (qb: &QueryBuilder, value: rawptr, type: type_expr, inclusions: [] str) {
     for inclusions {
         qb.ormctx->load_related(.{ value, type }, it);
+    }
+}
+
+
+
+#doc """
+    Converts all '%' to '$N' for use with PQexecParams.
+"""
+#local
+process_format_str :: (qb: &QueryBuilder, format: str) -> str {
+    output := make(dyn_str, qb.allocator);
+
+    while it := 0; it < format.length {
+        defer it += 1;
+
+        if format[it] != '%' {
+            output << format[it];
+            continue;
+        }
+
+        if it < format.length - 1 {
+            if format[it + 1] == '%' {
+                output << '%';
+                it += 1;
+                continue;
+            }
+        }
+
+        output << '$';
+        conv.format(&output, "{d}", qb.next_param_num);
+        qb.next_param_num += 1;
+    }
+
+    return output;
+}
+
+
+#local
+copy_anys :: (qb: &QueryBuilder, in: [] any, out: &[..] any) {
+    for in {
+        size := it.type->info().size;
+        new_data := qb.allocator->alloc(size);
+        memory.copy(new_data, it.data, size);
+
+        array.push(out, .{ new_data, it.type });
     }
 }
