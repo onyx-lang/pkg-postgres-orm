@@ -99,7 +99,10 @@ JoinKind :: enum {
 }
 
 #inject
-QueryBuilder.join :: (qb: &QueryBuilder, join_kind: JoinKind, table: type_expr, name: str, cond: str) => {
+QueryBuilder.join :: #match #local {}
+
+#overload
+QueryBuilder.join :: (qb: &QueryBuilder, join_kind: JoinKind, table: type_expr, name: str, cond: str, values: [] any) => {
     model := &qb.ormctx.models[table];
     if model == null do return qb;
 
@@ -107,10 +110,17 @@ QueryBuilder.join :: (qb: &QueryBuilder, join_kind: JoinKind, table: type_expr, 
         join_kind,
         model,
         string.alloc_copy(name, qb.allocator),
-        string.alloc_copy(cond, qb.allocator)
+        process_format_str(qb, cond)
     };
 
+    copy_anys(qb, values, &qb.params);
+
     return qb;
+}
+
+#overload
+QueryBuilder.join :: (qb: &QueryBuilder, join_kind: JoinKind, table: type_expr, name: str, cond: str, values: ..any) => {
+    return qb->join(join_kind, table, name, cond, cast([] any) values);
 }
 
 

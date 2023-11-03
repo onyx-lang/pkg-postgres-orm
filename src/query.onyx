@@ -44,10 +44,20 @@ Query.select :: (q: Query, selection: str) => {
 
 
 #inject
-Query.join :: (q: Query, join_kind: JoinKind, table: type_expr, name: str, cond: str) => {
-    q.builder->join(join_kind, table, name, cond);
+Query.join :: #match #local {}
+
+#overload
+Query.join :: (q: Query, join_kind: JoinKind, table: type_expr, name: str, cond: str, values: [] any) => {
+    q.builder->join(join_kind, table, name, cond, values);
     return q;
 }
+
+#overload
+Query.join :: (q: Query, join_kind: JoinKind, table: type_expr, name: str, cond: str, values: ..any) => {
+    q.builder->join(join_kind, table, name, cond, cast([] any) values);
+    return q;
+}
+
 
 #inject
 Query.filter :: #match #local {}
