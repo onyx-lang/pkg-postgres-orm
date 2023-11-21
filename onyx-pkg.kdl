@@ -1,0 +1,17 @@
+package {
+    name "postgres-orm" 
+    author "Brendan Hansen" 
+    url "git://onyxlang.io/repo/postgres-orm" 
+    description "Object Relational Mapper for Postgres database connection" 
+    version "0.0.44" 
+}
+
+config {
+    dependency_source_path "./lib" 
+    dependency_binary_path "./bin" 
+}
+
+dependencies {
+    postgres "0.0.18" git="git://onyxlang.io/repo/postgres" 
+}
+
