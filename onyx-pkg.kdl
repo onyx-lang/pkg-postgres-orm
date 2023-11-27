@@ -12,6 +12,6 @@ config {
 }
 
 dependencies {
-    postgres "0.0.18" git="git://onyxlang.io/repo/postgres" 
+    postgres "0.0.18" git="https://github.com/onyx-lang/pkg-postgres" 
 }
 
