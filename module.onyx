@@ -1,6 +1,6 @@
 package postgres.orm
 
-#load "./../postgres/module"
+#load "./../pkg-postgres/module"
 
 #load_all "./src"
 
