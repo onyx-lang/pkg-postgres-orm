@@ -3,7 +3,7 @@ package {
     author "Brendan Hansen" 
     url "git://onyxlang.io/repo/postgres-orm" 
     description "Object Relational Mapper for Postgres database connection" 
-    version "0.0.47" 
+    version "0.0.48" 
 }
 
 config {
@@ -16,6 +16,7 @@ dependencies {
 }
 
 lsp {
-    mode "project"
-    source_files "codegen_test"
+    mode "project" 
+    source_files "codegen_test" 
 }
+
