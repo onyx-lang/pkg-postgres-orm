@@ -15,3 +15,7 @@ dependencies {
     postgres "0.0.18" git="https://github.com/onyx-lang/pkg-postgres" 
 }
 
+lsp {
+    mode "project"
+    source_files "codegen_test"
+}

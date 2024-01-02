@@ -156,12 +156,12 @@ load_many_to_many :: (ctx: ^ORMContext, obj: any, model: ^ORMModel, rel: ^ORMRel
     id_list := do {
         list_writer, id_list := io.string_builder();
 
-        io.write(^list_writer, "(");
+        io.write(^list_writer, "{");
         for values {
             if !#first do io.write(^list_writer, ", ");
             io.write(^list_writer, "{}", it.id);
         }
-        io.write(^list_writer, ")");
+        io.write(^list_writer, "}");
 
         return id_list;
     };
@@ -173,7 +173,7 @@ load_many_to_many :: (ctx: ^ORMContext, obj: any, model: ^ORMModel, rel: ^ORMRel
 
         target_model := ^ctx.models[rel.target_type];
         q->filter(
-            tprintf("{\"} in %", target_model.cols[target_model.primary_col].name),
+            tprintf("{\"} = ANY(%)", target_model.cols[target_model.primary_col].name),
             string.as_str(id_list));
 
         q->order(target_model.cols[target_model.primary_col].name, .ASC);
