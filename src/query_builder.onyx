@@ -465,7 +465,9 @@ build_select_query_string :: (qb: ^QueryBuilder) -> str {
         for^ qb.filters {
             if !#first do io.write(^select_writer, " AND ");
 
+            io.write(^select_writer, "(");
             io.write(^select_writer, *it);
+            io.write(^select_writer, ")");
         }
     }
 
@@ -485,7 +487,9 @@ build_select_query_string :: (qb: ^QueryBuilder) -> str {
         for^ qb.havings {
             if !#first do io.write(^select_writer, " AND ");
 
+            io.write(^select_writer, "(");
             io.write(^select_writer, *it);
+            io.write(^select_writer, ")");
         }
     }
 
@@ -523,7 +527,9 @@ build_delete_query_string :: (qb: ^QueryBuilder) -> str {
         for^ qb.filters {
             if !#first do io.write(^delete_writer, " AND ");
 
+            io.write(^delete_writer, "(");
             io.write(^delete_writer, *it);
+            io.write(^delete_writer, ")");
         }
     }
 
@@ -557,7 +563,9 @@ build_update_query_string :: (qb: ^QueryBuilder, updates: [] ColumnUpdate) -> st
         for^ qb.filters {
             if !#first do io.write(^update_writer, " AND ");
 
+            io.write(^update_writer, "(");
             io.write(^update_writer, *it);
+            io.write(^update_writer, ")");
         }
     }
 
