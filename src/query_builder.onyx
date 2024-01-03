@@ -627,13 +627,37 @@ process_format_str :: (qb: &QueryBuilder, format: str) -> str {
     return output;
 }
 
+#package
+escape_str_as_bytea :: (s: str) -> str {
+    output: dyn_str;
+    string.append(&output, "\\x");
+
+    buf: [2] u8;
+    for s {
+        #persist hex_key := "0123456789ABCDEF";
+
+        buf[0] = hex_key[(it & 0xF0) >> 4];
+        buf[1] = hex_key[(it & 0xF)];
+
+        string.append(&output, buf);
+    }
+
+    return output;
+}
 
 #local
 copy_anys :: (qb: &QueryBuilder, in: [] any, out: &[..] any) {
     for in {
         size := it.type->info().size;
         new_data := qb.allocator->alloc(size);
-        memory.copy(new_data, it.data, size);
+
+        if it.type == Binary {
+            *cast(&Binary, new_data) = Binary.{
+                escape_str_as_bytea(cast(str) *cast(&Binary, it.data))
+            };
+        } else {
+            memory.copy(new_data, it.data, size);
+        }
 
         array.push(out, .{ new_data, it.type });
     }
