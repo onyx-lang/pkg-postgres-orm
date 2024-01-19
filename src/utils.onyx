@@ -100,7 +100,7 @@ ORMContext.exec_params_log :: (ctx: ^ORMContext, stmt: str, params: [] any) -> p
     }
 
     res := ctx->get_conn()->unwrap()->execParams(stmt, params);
-    if res->status() != .Tuples_Ok {
+    if status := res->status(); status != .Tuples_Ok && status != .Command_Ok {
         log(.Error, "PG-ORM", res->error_message());
     }
     
