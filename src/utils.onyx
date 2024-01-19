@@ -86,7 +86,7 @@ ORMContext.exec_log :: (ctx: ^ORMContext, stmt: str) -> postgres.Result {
     }
 
     res := ctx->get_conn()->unwrap()->exec(stmt);
-    if res->status() != .Tuples_Ok {
+    if status := res->status(); status != .Tuples_Ok && status != .Command_Ok {
         log(.Error, "PG-ORM", res->error_message());
     }
 
