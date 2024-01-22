@@ -63,7 +63,7 @@ internal_add :: (ctx: ^ORMContext, data: any) -> rawptr {
     io.write(^insert_writer, " RETURNING *;");
 
     cmd := string.as_str(insert_command);
-    res := ctx->exec_log(cmd);
+    res := ctx->exec_log(cmd)->or_return(null);
 
     if res->status() == .Tuples_Ok {
         if model.primary_col >= 0 {
@@ -82,7 +82,7 @@ internal_add :: (ctx: ^ORMContext, data: any) -> rawptr {
         }
     }
 
-    printf("[ERROR] Postgres: {}", res->error_message());
+    logf(.Error, "Postgres: {}", res->error_message());
     return null;
 }
 

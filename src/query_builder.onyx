@@ -256,7 +256,7 @@ QueryBuilder.all :: (qb: ^QueryBuilder, alternate_return_type := void) -> [] raw
     if !qb.valid do return .[];
 
     query := build_select_query_string(qb);
-    res := qb.ormctx->exec_params_log(query, qb.params);
+    res := qb.ormctx->exec_params_log(query, qb.params)?;
     defer qb->free();
 
     if res->status() != .Tuples_Ok {
@@ -311,7 +311,7 @@ QueryBuilder.first :: (qb: ^QueryBuilder, alternate_return_type := void) -> rawp
     qb.query_limit = 1;
     query := build_select_query_string(qb);
 
-    res := qb.ormctx->exec_params_log(query, qb.params);
+    res := qb.ormctx->exec_params_log(query, qb.params)?;
     defer qb->free();
 
     if res->status() != .Tuples_Ok {
@@ -354,7 +354,7 @@ QueryBuilder.find :: (qb: ^QueryBuilder, key: any) -> rawptr {
     if !qb.valid do return .{};
 
     if qb.model.primary_col == -1 {
-        printf("[ERROR] Cannot use find() on a model that does not have a primary key.");
+        logf(.Error, "Cannot use find() on a model that does not have a primary key.");
         return null;
     }
 
@@ -372,7 +372,7 @@ QueryBuilder.delete :: (qb: ^QueryBuilder) -> i32 {
     if !qb.valid do return -1;
 
     query := build_delete_query_string(qb);
-    res := qb.ormctx->exec_params_log(query, qb.params);
+    res := qb.ormctx->exec_params_log(query, qb.params)->or_return(0);
 
     defer {
         qb->free();
@@ -404,7 +404,7 @@ QueryBuilder.update :: (qb: ^QueryBuilder, updates: [] ColumnUpdate) -> i32 {
     if !qb.valid do return -1;
 
     query := build_update_query_string(qb, updates);
-    res := qb.ormctx->exec_params_log(query, qb.params);
+    res := qb.ormctx->exec_params_log(query, qb.params)->or_return(0);
 
     defer {
         qb->free();

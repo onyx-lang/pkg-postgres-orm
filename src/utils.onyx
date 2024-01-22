@@ -73,35 +73,37 @@ write_escaped_value :: (ctx: ^ORMContext, w: ^io.Writer, v_: any) {
 
 #inject
 ORMContext.quick_exec :: macro (ctx: ^ORMContext, $type: type_expr, stmt: str) -> [] type {
-    res := ctx->exec_log(stmt);
+    res := ctx->exec_log(stmt)->or_return(type.[]);
     defer res->clear();
     return res->all_as(type);
 }
 
 
 #inject
-ORMContext.exec_log :: (ctx: ^ORMContext, stmt: str) -> postgres.Result {
+ORMContext.exec_log :: (ctx: ^ORMContext, stmt: str) -> ? postgres.Result {
     if ctx.log_sql_statements {
         log(.Info, "PG-ORM", stmt);
     }
 
-    res := ctx->get_conn()->unwrap()->exec(stmt);
+    res := ctx->get_conn()?->exec(stmt);
     if status := res->status(); status != .Tuples_Ok && status != .Command_Ok {
         log(.Error, "PG-ORM", res->error_message());
+        return .None;
     }
 
     return res;
 }
 
 #inject
-ORMContext.exec_params_log :: (ctx: ^ORMContext, stmt: str, params: [] any) -> postgres.Result {
+ORMContext.exec_params_log :: (ctx: ^ORMContext, stmt: str, params: [] any) -> ? postgres.Result {
     if ctx.log_sql_statements {
         log(.Info, "PG-ORM", stmt);
     }
 
-    res := ctx->get_conn()->unwrap()->execParams(stmt, params);
+    res := ctx->get_conn()?->execParams(stmt, params);
     if status := res->status(); status != .Tuples_Ok && status != .Command_Ok {
         log(.Error, "PG-ORM", res->error_message());
+        return .None;
     }
     
     return res;
