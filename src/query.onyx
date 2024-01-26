@@ -194,7 +194,7 @@ Query.update :: #match #local {}
 
 #overload
 Query.update :: (q: Query, values: [] ColumnUpdate) -> i32 {
-    return q.builder->update(field, values);
+    return q.builder->update(values);
 }
 
 #overload
