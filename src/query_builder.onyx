@@ -553,8 +553,10 @@ build_update_query_string :: (qb: ^QueryBuilder, updates: [] ColumnUpdate) -> st
     for^ updates {
         if !#first do io.write(^update_writer, ", ");
 
-        io.write(^update_writer, "\"{}\"=", it.name);
-        write_escaped_value(qb.ormctx, ^update_writer, it.value);
+        io.write(^update_writer, "\"{}\"=${}", it.name, qb.next_param_num);
+        qb.next_param_num += 1;
+
+        copy_anys(qb, .[it.value], &qb.params);
     }
 
     if qb.filters.length > 0 {
