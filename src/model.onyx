@@ -309,6 +309,13 @@ get_columns_from_value :: (model: ^ORMModel, data: any, skip_primary_key := fals
 
         value := any.{ cast([^] u8) data.data + it.member_info.offset, it.onyx_type };
 
+        if is_zero_value(value) && it.primary_key
+        {
+            // If no id was specified for the primary key,
+            // assume the key is automatically generated.
+            continue;
+        }
+
         // @TODO Double check this condition because it does not make
         // complete sense to me right now.
         // if runtime.info.union_constructed_from(it.onyx_type, Optional) ||
