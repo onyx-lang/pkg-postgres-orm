@@ -161,7 +161,7 @@ load_bulk_belongs_to :: (ctx: &ORMContext, objs: [] rawptr, obj_type: type_expr,
         }
     };
 
-    q->filter(tprintf("{\"} = ANY(%)", foreign_key), string.as_str(inclusion_string));
+    q->filter(tprintf("{\"} = ANY(%)", foreign_key), cast(str) inclusion_string);
 
     results := q->all();
     if !results do return;
