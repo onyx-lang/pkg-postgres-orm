@@ -141,3 +141,27 @@ strip_pointer_and_check_model :: (ctx: ^ORMContext, data: ^any, require_primary_
 
     return true;
 }
+
+#package
+anys_equal :: (a1, a2: any) -> bool {
+    if a1.type != a2.type do return false;
+
+    switch a1.type {
+        case i8, u8, i16, u16, i32, u32, i64, u64, bool, f32, f64 {
+            use core.intrinsics.wasm {memory_equal}
+            use runtime.info {get_type_info}
+
+            return memory_equal(a1.data, a2.data, get_type_info(a1.type).size);
+        }
+
+        case str {
+            return string.equal(
+                *cast(&str) a1.data,
+                *cast(&str) a2.data,
+            );
+        }
+    }
+
+    return false;
+}
+

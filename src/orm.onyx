@@ -379,7 +379,8 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
                         continue;
                     }
 
-                    if !array.contains(it.value.cols, [](it.name == belongs_to_rel.local_key)) {
+                    foreign_key_member := array.first(it.value.cols, [](it.name == belongs_to_rel.local_key));
+                    if !foreign_key_member {
                         logf(.Error, "In model '{}', belongs_to relationship '{}' is not valid because '{}' is not a member of '{}'.",
                             it.value.type_info.name, rel.member_info.name, belongs_to_rel.local_key, it.value.type_info.name);
                         continue;

@@ -295,10 +295,7 @@ QueryBuilder.all :: (qb: ^QueryBuilder, alternate_return_type := void) -> [] raw
     }
 
     if qb.inclusions && alternate_return_type == void {
-        // TODO fix the n+1 problem here.
-        for output {
-            process_inclusions(qb, it, qb.table_type, qb.inclusions);
-        }
+        process_bulk_inclusions(qb, output, qb.table_type, qb.inclusions);
     }
 
     return output;
@@ -596,6 +593,13 @@ escape_any_args :: (qb: ^QueryBuilder, values: [] any) {
     }
 }
 
+
+#local
+process_bulk_inclusions :: (qb: &QueryBuilder, values: [] rawptr, type: type_expr, inclusions: [] str) {
+    for inclusions {
+        qb.ormctx->load_related_many(values, type, it);
+    }
+}
 
 #local
 process_inclusions :: (qb: &QueryBuilder, value: rawptr, type: type_expr, inclusions: [] str) {
