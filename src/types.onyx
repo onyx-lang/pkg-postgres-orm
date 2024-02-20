@@ -22,7 +22,7 @@ parse_binary :: (b: &Binary, s: str, a: Allocator) -> bool {
 
     result := make([] u8, to_decode.length / 2, a);
 
-    for i: result.length {
+    for i in result.length {
         result[i] = ~~(
             (decode(to_decode[i * 2 + 0]) << 4) |
             (decode(to_decode[i * 2 + 1]))

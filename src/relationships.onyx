@@ -10,7 +10,7 @@ ORMContext.load_related :: (ctx: ^ORMContext, obj_: any, field_name: ? str = .{}
 
     model := ^ctx.models[obj.type];
 
-    for^ rel: model.relationships {
+    for^ rel in model.relationships {
         field_name->with([name] {
             if rel.member_info.name != name do continue;
         });
@@ -29,7 +29,7 @@ ORMContext.load_related_many :: (ctx: ^ORMContext, objs: [] rawptr, obj_type: ty
     model := &ctx.models[obj_type];
     if !model do return;
 
-    for& rel: model.relationships {
+    for& rel in model.relationships {
         field_name->with([name] {
             if rel.member_info.name != name do continue;
         });
@@ -41,12 +41,12 @@ ORMContext.load_related_many :: (ctx: ^ORMContext, objs: [] rawptr, obj_type: ty
 
 
     // HACK
-    for^ rel: model.relationships {
+    for^ rel in model.relationships {
         field_name->with([name] {
             if rel.member_info.name != name do continue;
         });
         
-        for obj: objs {
+        for obj in objs {
             switch rel.relation_type {
                 case has_one      do load_has_one(ctx, .{ obj, obj_type }, model, rel);
                 case has_many     do load_has_many(ctx, .{ obj, obj_type }, model, rel);
@@ -191,7 +191,7 @@ load_bulk_belongs_to :: (ctx: &ORMContext, objs: [] rawptr, obj_type: type_expr,
         );
 
         switch matched_result {
-            case v: .Some {
+            case .Some as v {
                 *cast(&rawptr) (obj_base + rel.member_info.offset) = v;
             }
 

@@ -660,8 +660,8 @@ escape_str_as_bytea :: (s: str) -> str {
 }
 
 #local
-copy_anys :: (qb: &QueryBuilder, in: [] any, out: &[..] any) {
-    for in {
+copy_anys :: (qb: &QueryBuilder, input: [] any, out: &[..] any) {
+    for input {
         size := it.type->info().size;
         new_data := qb.allocator->alloc(size);
 

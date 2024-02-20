@@ -45,7 +45,7 @@ lookup_or_create_instances :: (ctx: ^ORMContext, type: type_expr, res: ^postgres
     state := ctx->get_state();
     instance_allocator := state->instance_allocator();
 
-    for row: res.rows {
+    for row in res.rows {
         primary_key := res->get_value(row, primary_idx);
         id          := ORMInstanceKey.{type, primary_key};
 
