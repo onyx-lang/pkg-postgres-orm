@@ -190,6 +190,14 @@ Query.delete :: (q: Query) -> i32 {
 }
 
 #inject
+Query.update :: #match #local {}
+
+#overload
+Query.update :: (q: Query, values: [] ColumnUpdate) -> i32 {
+    return q.builder->update(values);
+}
+
+#overload
 Query.update :: (q: Query, field: str, value: any) -> i32 {
     return q.builder->update(field, value);
 }

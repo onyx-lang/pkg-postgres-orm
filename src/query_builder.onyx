@@ -256,7 +256,7 @@ QueryBuilder.all :: (qb: ^QueryBuilder, alternate_return_type := void) -> [] raw
     if !qb.valid do return .[];
 
     query := build_select_query_string(qb);
-    res := qb.ormctx->exec_params_log(query, qb.params);
+    res := qb.ormctx->exec_params_log(query, qb.params)?;
     defer qb->free();
 
     if res->status() != .Tuples_Ok {
@@ -295,10 +295,7 @@ QueryBuilder.all :: (qb: ^QueryBuilder, alternate_return_type := void) -> [] raw
     }
 
     if qb.inclusions && alternate_return_type == void {
-        // TODO fix the n+1 problem here.
-        for output {
-            process_inclusions(qb, it, qb.table_type, qb.inclusions);
-        }
+        process_bulk_inclusions(qb, output, qb.table_type, qb.inclusions);
     }
 
     return output;
@@ -311,7 +308,7 @@ QueryBuilder.first :: (qb: ^QueryBuilder, alternate_return_type := void) -> rawp
     qb.query_limit = 1;
     query := build_select_query_string(qb);
 
-    res := qb.ormctx->exec_params_log(query, qb.params);
+    res := qb.ormctx->exec_params_log(query, qb.params)?;
     defer qb->free();
 
     if res->status() != .Tuples_Ok {
@@ -322,7 +319,7 @@ QueryBuilder.first :: (qb: ^QueryBuilder, alternate_return_type := void) -> rawp
 
     if alternate_return_type == void && qb.model.primary_col >= 0 {
         instances := lookup_or_create_instances(qb.ormctx, qb.table_type, ^res);
-        defer if instances.count > 0 do delete(^instances);
+        defer delete(^instances);
 
         if instances.count == 0 do return null;
         output = ~~ instances.data[0];
@@ -354,7 +351,7 @@ QueryBuilder.find :: (qb: ^QueryBuilder, key: any) -> rawptr {
     if !qb.valid do return .{};
 
     if qb.model.primary_col == -1 {
-        printf("[ERROR] Cannot use find() on a model that does not have a primary key.");
+        logf(.Error, "Cannot use find() on a model that does not have a primary key.");
         return null;
     }
 
@@ -372,7 +369,7 @@ QueryBuilder.delete :: (qb: ^QueryBuilder) -> i32 {
     if !qb.valid do return -1;
 
     query := build_delete_query_string(qb);
-    res := qb.ormctx->exec_params_log(query, qb.params);
+    res := qb.ormctx->exec_params_log(query, qb.params)->or_return(0);
 
     defer {
         qb->free();
@@ -404,7 +401,7 @@ QueryBuilder.update :: (qb: ^QueryBuilder, updates: [] ColumnUpdate) -> i32 {
     if !qb.valid do return -1;
 
     query := build_update_query_string(qb, updates);
-    res := qb.ormctx->exec_params_log(query, qb.params);
+    res := qb.ormctx->exec_params_log(query, qb.params)->or_return(0);
 
     defer {
         qb->free();
@@ -465,7 +462,9 @@ build_select_query_string :: (qb: ^QueryBuilder) -> str {
         for^ qb.filters {
             if !#first do io.write(^select_writer, " AND ");
 
+            io.write(^select_writer, "(");
             io.write(^select_writer, *it);
+            io.write(^select_writer, ")");
         }
     }
 
@@ -485,7 +484,9 @@ build_select_query_string :: (qb: ^QueryBuilder) -> str {
         for^ qb.havings {
             if !#first do io.write(^select_writer, " AND ");
 
+            io.write(^select_writer, "(");
             io.write(^select_writer, *it);
+            io.write(^select_writer, ")");
         }
     }
 
@@ -523,7 +524,9 @@ build_delete_query_string :: (qb: ^QueryBuilder) -> str {
         for^ qb.filters {
             if !#first do io.write(^delete_writer, " AND ");
 
+            io.write(^delete_writer, "(");
             io.write(^delete_writer, *it);
+            io.write(^delete_writer, ")");
         }
     }
 
@@ -547,8 +550,10 @@ build_update_query_string :: (qb: ^QueryBuilder, updates: [] ColumnUpdate) -> st
     for^ updates {
         if !#first do io.write(^update_writer, ", ");
 
-        io.write(^update_writer, "\"{}\"=", it.name);
-        write_escaped_value(qb.ormctx, ^update_writer, it.value);
+        io.write(^update_writer, "\"{}\"=${}", it.name, qb.next_param_num);
+        qb.next_param_num += 1;
+
+        copy_anys(qb, .[it.value], &qb.params);
     }
 
     if qb.filters.length > 0 {
@@ -557,7 +562,9 @@ build_update_query_string :: (qb: ^QueryBuilder, updates: [] ColumnUpdate) -> st
         for^ qb.filters {
             if !#first do io.write(^update_writer, " AND ");
 
+            io.write(^update_writer, "(");
             io.write(^update_writer, *it);
+            io.write(^update_writer, ")");
         }
     }
 
@@ -586,6 +593,13 @@ escape_any_args :: (qb: ^QueryBuilder, values: [] any) {
     }
 }
 
+
+#local
+process_bulk_inclusions :: (qb: &QueryBuilder, values: [] rawptr, type: type_expr, inclusions: [] str) {
+    for inclusions {
+        qb.ormctx->load_related_many(values, type, it);
+    }
+}
 
 #local
 process_inclusions :: (qb: &QueryBuilder, value: rawptr, type: type_expr, inclusions: [] str) {
@@ -627,13 +641,37 @@ process_format_str :: (qb: &QueryBuilder, format: str) -> str {
     return output;
 }
 
+#package
+escape_str_as_bytea :: (s: str) -> str {
+    output: dyn_str;
+    string.append(&output, "\\x");
+
+    buf: [2] u8;
+    for s {
+        #persist hex_key := "0123456789ABCDEF";
+
+        buf[0] = hex_key[(it & 0xF0) >> 4];
+        buf[1] = hex_key[(it & 0xF)];
+
+        string.append(&output, buf);
+    }
+
+    return output;
+}
 
 #local
 copy_anys :: (qb: &QueryBuilder, in: [] any, out: &[..] any) {
     for in {
         size := it.type->info().size;
         new_data := qb.allocator->alloc(size);
-        memory.copy(new_data, it.data, size);
+
+        if it.type == Binary {
+            *cast(&Binary, new_data) = Binary.{
+                escape_str_as_bytea(cast(str) *cast(&Binary, it.data))
+            };
+        } else {
+            memory.copy(new_data, it.data, size);
+        }
 
         array.push(out, .{ new_data, it.type });
     }

@@ -56,46 +56,54 @@ write_escaped_value :: (ctx: ^ORMContext, w: ^io.Writer, v_: any) {
         v = core.misc.any_unwrap(v);
     }
 
-    formatted_string := conv.format_va("{d}", .[v]);
-    defer delete(^formatted_string);
+    if v.type == Binary {
+        s: str = ~~*cast(&Binary, v.data);
+        io.write(w, "'{}'::bytea", escape_str_as_bytea(s));
+        
+    } else {
+        formatted_string := conv.format_va("{d}", .[v]);
+        defer delete(^formatted_string);
 
-    escaped_string := postgres.escape_str(ctx->get_conn()->unwrap(), formatted_string);
-    defer delete(^escaped_string);
+        escaped_string := postgres.escape_str(ctx->get_conn()->unwrap(), formatted_string);
+        defer delete(^escaped_string);
 
-    io.write(w, "'{}'", escaped_string);
+        io.write(w, "'{}'", escaped_string);
+    }
 }
 
 #inject
 ORMContext.quick_exec :: macro (ctx: ^ORMContext, $type: type_expr, stmt: str) -> [] type {
-    res := ctx->exec_log(stmt);
+    res := ctx->exec_log(stmt)->or_return(type.[]);
     defer res->clear();
     return res->all_as(type);
 }
 
 
 #inject
-ORMContext.exec_log :: (ctx: ^ORMContext, stmt: str) -> postgres.Result {
+ORMContext.exec_log :: (ctx: ^ORMContext, stmt: str) -> ? postgres.Result {
     if ctx.log_sql_statements {
         log(.Info, "PG-ORM", stmt);
     }
 
-    res := ctx->get_conn()->unwrap()->exec(stmt);
-    if res->status() != .Tuples_Ok {
+    res := ctx->get_conn()?->exec(stmt);
+    if status := res->status(); status != .Tuples_Ok && status != .Command_Ok {
         log(.Error, "PG-ORM", res->error_message());
+        return .None;
     }
 
     return res;
 }
 
 #inject
-ORMContext.exec_params_log :: (ctx: ^ORMContext, stmt: str, params: [] any) -> postgres.Result {
+ORMContext.exec_params_log :: (ctx: ^ORMContext, stmt: str, params: [] any) -> ? postgres.Result {
     if ctx.log_sql_statements {
         log(.Info, "PG-ORM", stmt);
     }
 
-    res := ctx->get_conn()->unwrap()->execParams(stmt, params);
-    if res->status() != .Tuples_Ok {
+    res := ctx->get_conn()?->execParams(stmt, params);
+    if status := res->status(); status != .Tuples_Ok && status != .Command_Ok {
         log(.Error, "PG-ORM", res->error_message());
+        return .None;
     }
     
     return res;
@@ -133,3 +141,27 @@ strip_pointer_and_check_model :: (ctx: ^ORMContext, data: ^any, require_primary_
 
     return true;
 }
+
+#package
+anys_equal :: (a1, a2: any) -> bool {
+    if a1.type != a2.type do return false;
+
+    switch a1.type {
+        case i8, u8, i16, u16, i32, u32, i64, u64, bool, f32, f64 {
+            use core.intrinsics.wasm {memory_equal}
+            use runtime.info {get_type_info}
+
+            return memory_equal(a1.data, a2.data, get_type_info(a1.type).size);
+        }
+
+        case str {
+            return string.equal(
+                *cast(&str) a1.data,
+                *cast(&str) a2.data,
+            );
+        }
+    }
+
+    return false;
+}
+

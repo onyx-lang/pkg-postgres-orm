@@ -37,6 +37,9 @@ internal_add :: (ctx: ^ORMContext, data: any) -> rawptr {
     insert_writer, insert_command := io.string_builder();
     defer delete(insert_command);
 
+    values: [..] any;
+    defer delete(&values);
+
     io.write(^insert_writer, "INSERT INTO \"{}\".\"{}\"",
         model.schema_name, model.table_name);
 
@@ -51,10 +54,14 @@ internal_add :: (ctx: ^ORMContext, data: any) -> rawptr {
 
         io.write(^insert_writer, ") VALUES (");
 
+        index := 1;
         for^ columns {
             if !#first do io.write(^insert_writer, ", ");
 
-            write_escaped_value(ctx, ^insert_writer, it.value);
+            io.write(^insert_writer, "${}", index);
+            index += 1;
+
+            array.push(&values, it.value);
         }
 
         io.write(^insert_writer, ")");
@@ -63,12 +70,12 @@ internal_add :: (ctx: ^ORMContext, data: any) -> rawptr {
     io.write(^insert_writer, " RETURNING *;");
 
     cmd := string.as_str(insert_command);
-    res := ctx->exec_log(cmd);
+    res := ctx->exec_params_log(cmd, values)->or_return(null);
 
     if res->status() == .Tuples_Ok {
         if model.primary_col >= 0 {
             instances := lookup_or_create_instances(ctx, data.type, ^res);
-            defer if instances.count > 0 do delete(^instances);
+            defer delete(^instances);
 
             if instances.count == 0 do return null;
             return instances[0];
@@ -82,7 +89,7 @@ internal_add :: (ctx: ^ORMContext, data: any) -> rawptr {
         }
     }
 
-    printf("[ERROR] Postgres: {}", res->error_message());
+    logf(.Error, "Postgres: {}", res->error_message());
     return null;
 }
 
@@ -302,13 +309,22 @@ get_columns_from_value :: (model: ^ORMModel, data: any, skip_primary_key := fals
 
         value := any.{ cast([^] u8) data.data + it.member_info.offset, it.onyx_type };
 
+        if is_zero_value(value) && it.primary_key
+        {
+            // If no id was specified for the primary key,
+            // assume the key is automatically generated.
+            continue;
+        }
+
         // @TODO Double check this condition because it does not make
         // complete sense to me right now.
-        if runtime.info.union_constructed_from(it.onyx_type, Optional) ||
-            !is_zero_value(value) ||
-            (it.not_null && !(it->has_default())) {
-            cols << .{ it.name, value };
-        }
+        // if runtime.info.union_constructed_from(it.onyx_type, Optional) ||
+        //     !is_zero_value(value) ||
+        //     (it.not_null && !(it->has_default())) {
+        //     cols << .{ it.name, value };
+        // }
+
+        cols << .{ it.name, value };
     }
 
     return cols;

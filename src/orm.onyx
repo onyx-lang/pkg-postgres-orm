@@ -161,6 +161,13 @@ ORMContext.get_conn :: (ctx: &ORMContext) -> ? postgres.Connection {
     });
 
     state._conn = ctx.conn_maker();
+    state._conn->with([conn] {
+        if conn->status() != .Ok {
+            logf(.Error, "Failed to connect to PostgresQL database.");
+            state._conn = .None;
+        }
+    });
+
     return state._conn;
 }
 
@@ -261,7 +268,7 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
             col.type = onyx_type_to_postgres_type(member.type);
 
             if !col.type {
-                printf("[ERROR] '{}' is not a known type for the Postgres ORM.\n", col.onyx_type);
+                logf(.Error, "'{}' is not a known type for the Postgres ORM.", col.onyx_type);
                 model_valid = false;
                 continue;
             }
@@ -285,7 +292,7 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
                             model.primary_col = cols.length;
 
                         } else {
-                            printf("[ERROR] In model '{}', multiple fields were marked as primary keys.\n", type_idx);
+                            logf(.Error, "In model '{}', multiple fields were marked as primary keys.", type_idx);
                             model_valid = false;
                         }
                     }
@@ -297,7 +304,7 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
                             case u64 do col.type = "bigserial";
 
                             case #default {
-                                printf("[ERROR] In model '{}', @auto_increment can only be used on u16, u32, or u64 fields.", type_idx);
+                                logf(.Error, "In model '{}', @auto_increment can only be used on u16, u32, or u64 fields.", type_idx);
                                 model_valid = false;
                             }
                         }
@@ -314,7 +321,7 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
 
                 if tag.type == foreign_key {
                     if col.foreign != null {
-                        printf("[ERROR] In model '{}', '{}' has multiple foreign key declarations.\n", type_idx, col.name);
+                        logf(.Error, "In model '{}', '{}' has multiple foreign key declarations.", type_idx, col.name);
                         model_valid = false;
                         continue;
                     }
@@ -356,7 +363,7 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
             related_model := ^ctx.models[rel.target_type];
 
             if related_model == null {
-                printf("[ERROR] In model '{}', relationship '{}' is not valid because '{}' is not a model.\n",
+                logf(.Error, "In model '{}', relationship '{}' is not valid because '{}' is not a model.",
                     it.value.type_info.name, rel.member_info.name, rel.target_type);
 
                 continue;
@@ -367,13 +374,14 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
                     belongs_to_rel := cast(^belongs_to) rel.relation_data;
 
                     if related_model.primary_col == -1 && string.empty(belongs_to_rel.foreign_key) {
-                        printf("[ERROR] In model '{}', belongs_to relationship '{}' is not valid because '{}' does not have a primary key.\n",
+                        logf(.Error, "In model '{}', belongs_to relationship '{}' is not valid because '{}' does not have a primary key.",
                             it.value.type_info.name, rel.member_info.name, rel.target_type);
                         continue;
                     }
 
-                    if !array.contains(it.value.cols, [](it.name == belongs_to_rel.local_key)) {
-                        printf("[ERROR] In model '{}', belongs_to relationship '{}' is not valid because '{}' is not a member of '{}'.\n",
+                    foreign_key_member := array.first(it.value.cols, [](it.name == belongs_to_rel.local_key));
+                    if !foreign_key_member {
+                        logf(.Error, "In model '{}', belongs_to relationship '{}' is not valid because '{}' is not a member of '{}'.",
                             it.value.type_info.name, rel.member_info.name, belongs_to_rel.local_key, it.value.type_info.name);
                         continue;
                     }
@@ -383,7 +391,7 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
                     has_many_rel := cast(^has_many) rel.relation_data;
 
                     if it.value.primary_col == -1 && string.empty(has_many_rel.local_key) {
-                        printf("[ERROR] In model '{}', has_many relationship '{}' is not valid because '{}' does not have a primary key.\n",
+                        logf(.Error, "In model '{}', has_many relationship '{}' is not valid because '{}' does not have a primary key.",
                             it.value.type_info.name, rel.member_info.name, it.value.type_info.name);
                         continue;
                     }
@@ -393,7 +401,7 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
                     has_one_rel := cast(^has_one) rel.relation_data;
 
                     if it.value.primary_col == -1 && string.empty(has_one_rel.local_key) {
-                        printf("[ERROR] In model '{}', has_one relationship '{}' is not valid because '{}' does not have a primary key.\n",
+                        logf(.Error, "In model '{}', has_one relationship '{}' is not valid because '{}' does not have a primary key.",
                             it.value.type_info.name, rel.member_info.name, it.value.type_info.name);
                         continue;
                     }
@@ -405,31 +413,31 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
                     in_between_model := ^ctx.models[many_to_many_rel.mapping_model];
 
                     if in_between_model == null {
-                        printf("[ERROR] In model '{}', many_to_many relationship '{}' is not valid because '{}' is not a model.\n",
+                        logf(.Error, "In model '{}', many_to_many relationship '{}' is not valid because '{}' is not a model.",
                             it.value.type_info.name, rel.member_info.name, in_between_model.type_info.name);
                         continue;
                     }
 
                     if related_model.primary_col == -1 {
-                        printf("[ERROR] In model '{}', many_to_many relationship '{}' is not valid because '{}' does not have a primary key.\n",
+                        logf(.Error, "In model '{}', many_to_many relationship '{}' is not valid because '{}' does not have a primary key.",
                             it.value.type_info.name, rel.member_info.name, rel.target_type);
                         continue;
                     }
 
                     if it.value.primary_col == -1 {
-                        printf("[ERROR] In model '{}', many_to_many relationship '{}' is not valid because '{}' does not have a primary key.\n",
+                        logf(.Error, "In model '{}', many_to_many relationship '{}' is not valid because '{}' does not have a primary key.",
                             it.value.type_info.name, rel.member_info.name, it.value.type_info.name);
                         continue;
                     }
 
                     if !array.contains(in_between_model.cols, [](it.name == many_to_many_rel.lookup_key)) {
-                        printf("[ERROR] In model '{}', many_to_many relationship '{}' is not valid because '{}' is not a member of '{}'.\n",
+                        logf(.Error, "In model '{}', many_to_many relationship '{}' is not valid because '{}' is not a member of '{}'.",
                             it.value.type_info.name, rel.member_info.name, many_to_many_rel.lookup_key, in_between_model.type_info.name);
                         continue;
                     }
 
                     if !array.contains(in_between_model.cols, [](it.name == many_to_many_rel.result_key)) {
-                        printf("[ERROR] In model '{}', many_to_many relationship '{}' is not valid because '{}' is not a member of '{}'.\n",
+                        logf(.Error, "In model '{}', many_to_many relationship '{}' is not valid because '{}' is not a member of '{}'.",
                             it.value.type_info.name, rel.member_info.name, many_to_many_rel.result_key, in_between_model.type_info.name);
                         continue;
                     }
@@ -441,7 +449,7 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
             if col.foreign != null {
                 foreign_model := ^ctx.models[col.foreign.model];
                 if foreign_model == null {
-                    printf("[ERROR] In model '{}', foreign key '{}' is not valid because '{}' is not a model.\n",
+                    logf(.Error, "In model '{}', foreign key '{}' is not valid because '{}' is not a model.",
                         it.value.type_info.name, col.name, col.foreign.model);
                     continue;
                 }
@@ -451,7 +459,7 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
                 }
 
                 if array.find(foreign_model.cols, [](it.name == col.foreign.key)) < 0 {
-                    printf("[ERROR] In model '{}', foreign key '{}' is not valid because '{}' is not a column of '{}'.\n",
+                    logf(.Error, "In model '{}', foreign key '{}' is not valid because '{}' is not a column of '{}'.",
                         it.value.type_info.name, col.name, col.foreign.key, col.foreign.model);
                     continue;
                 }
@@ -512,7 +520,7 @@ process_member_if_relation :: (member, relations) => {
     if !is_pointer && !is_array do return false;
 
     if member.tags.count == 0 {
-        printf("[ERROR] Expected relation specifier on member '{}'.\n", member.name);
+        logf(.Error, "Expected relation specifier on member '{}'.", member.name);
         return true;
     }
 
@@ -525,7 +533,7 @@ process_member_if_relation :: (member, relations) => {
         }
     }
 
-    printf("[ERROR] '{}' does not have valid relation specifier.\n", member.name);
+    logf(.Error, "'{}' does not have valid relation specifier.", member.name);
     return false;
 }
 
@@ -574,7 +582,7 @@ prepare_models_in_database :: (ctx: ^ORMContext) {
         }
 
         if !removed_one {
-            printf("[ERROR] Failed to create one or more tables.\n");
+            logf(.Error, "Failed to create tables: {}", iter.as_iter(to_create) |> iter.map(x => x.table_name) |> iter.collect());
             return;
         }
     }
@@ -588,7 +596,7 @@ prepare_models_in_database :: (ctx: ^ORMContext) {
         for^ col: entry.value.cols {
            if !array.contains(columns, [](it.column_name == col.name)) {
                if !add_column_to_model(ctx, ^entry.value, col) {
-                   printf("[ERROR] Failed to add column '{}'.\n", col.name);
+                   logf(.Error, "Failed to add column '{}'.", col.name);
                }
            }
         }
@@ -597,7 +605,7 @@ prepare_models_in_database :: (ctx: ^ORMContext) {
 
 #local
 create_table_for_model :: (ctx: ^ORMContext, model: ^ORMModel) -> bool {
-    log(.Info, "PG-ORM", tprintf("Creating {}.{}\n", model.schema_name, model.table_name));
+    log(.Info, "PG-ORM", tprintf("Creating {}.{}", model.schema_name, model.table_name));
 
     create_writer, create_command := io.string_builder();
     defer delete(create_command);
@@ -654,7 +662,7 @@ create_table_for_model :: (ctx: ^ORMContext, model: ^ORMModel) -> bool {
 
     io.write(^create_writer, ");");
 
-    res := ctx->exec_log(string.as_str(create_command));
+    res := ctx->exec_log(string.as_str(create_command))?;
     defer res->clear();
     
     return res->status() == .Command_Ok;
@@ -704,7 +712,7 @@ add_column_to_model :: (ctx: ^ORMContext, model: ^ORMModel, col: ^ORMCol) -> boo
 
     io.write(^add_writer, ";");
 
-    res := ctx->exec_log(string.as_str(add_command));
+    res := ctx->exec_log(string.as_str(add_command))?;
     defer res->clear();
 
     return res->status() == .Command_Ok;

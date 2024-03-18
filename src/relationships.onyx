@@ -24,6 +24,38 @@ ORMContext.load_related :: (ctx: ^ORMContext, obj_: any, field_name: ? str = .{}
     }
 }
 
+#inject
+ORMContext.load_related_many :: (ctx: ^ORMContext, objs: [] rawptr, obj_type: type_expr, field_name: ? str = .{}) {
+    model := &ctx.models[obj_type];
+    if !model do return;
+
+    for& rel: model.relationships {
+        field_name->with([name] {
+            if rel.member_info.name != name do continue;
+        });
+
+        switch rel.relation_type {
+            case belongs_to do load_bulk_belongs_to(ctx, objs, obj_type, model, rel);
+        }
+    }
+
+
+    // HACK
+    for^ rel: model.relationships {
+        field_name->with([name] {
+            if rel.member_info.name != name do continue;
+        });
+        
+        for obj: objs {
+            switch rel.relation_type {
+                case has_one      do load_has_one(ctx, .{ obj, obj_type }, model, rel);
+                case has_many     do load_has_many(ctx, .{ obj, obj_type }, model, rel);
+                case many_to_many do load_many_to_many(ctx, .{ obj, obj_type }, model, rel);
+            }
+        }
+    }
+}
+
 
 #local
 load_has_one :: (ctx: ^ORMContext, obj: any, model: ^ORMModel, rel: ^ORMRelation) {
@@ -87,6 +119,85 @@ load_belongs_to :: (ctx: ^ORMContext, obj: any, model: ^ORMModel, rel: ^ORMRelat
 
     result := q->first();
     *cast(^rawptr) (obj_base + rel.member_info.offset) = result;
+}
+
+#local
+load_bulk_belongs_to :: (ctx: &ORMContext, objs: [] rawptr, obj_type: type_expr, model: &ORMModel, rel: &ORMRelation) {
+    belongs_to_rel := cast(&belongs_to) rel.relation_data;
+
+    q: QueryBuilder;
+    q->init(rel.target_type, ctx);
+
+    key := do {
+        col := array.find(model.cols, [](it.name == belongs_to_rel.local_key));
+        return ^model.cols[col];
+    };
+
+    inclusion_string: dyn_str;
+    string.append(&inclusion_string, "{");
+
+    key_member_offset := key.member_info.offset;
+    key_member_type   := key.member_info.type;
+
+    for objs {
+        obj_base := cast([&] u8) it;
+
+        if !#first do string.append(&inclusion_string, ",");
+
+        conv.format_va(&inclusion_string, "{'d}", any.[
+            any.{ obj_base + key_member_offset, key_member_type }
+        ]);
+    }
+
+    string.append(&inclusion_string, "}");
+
+    foreign_key := do {
+        if string.empty(belongs_to_rel.foreign_key) {
+            foreign_model := ^ctx.models[rel.target_type];
+            return foreign_model.cols[foreign_model.primary_col].name;
+
+        } else {
+            return belongs_to_rel.foreign_key;
+        }
+    };
+
+    q->filter(tprintf("{\"} = ANY(%)", foreign_key), cast(str) inclusion_string);
+
+    results := q->all();
+    if !results do return;
+
+    foreign_key_member := do {
+        foreign_model := &ctx.models[rel.target_type];
+        if foreign_model {
+            return array.first(foreign_model.cols, [](it.name == foreign_key));
+        }
+
+        return null;
+    };
+
+    if !foreign_key_member do return;
+
+    for objs {
+        obj_base := cast([&] u8) it;
+
+        matched_result := array.find_opt(
+            results,
+            [x](
+                anys_equal(
+                    any.{ x, foreign_key_member.onyx_type },
+                    any.{ obj_base + key_member_offset, key_member_type },
+                )
+            )
+        );
+
+        switch matched_result {
+            case v: .Some {
+                *cast(&rawptr) (obj_base + rel.member_info.offset) = v;
+            }
+
+            case .None ---
+        }
+    }
 }
 
 #local
