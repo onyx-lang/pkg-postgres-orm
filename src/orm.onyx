@@ -124,7 +124,7 @@ create :: (
 
 #doc "Frees everything related to the ORM context. Use this when you are completely done using the context."
 close :: (ctx: ^ORMContext) {
-    for thread_state: iter.as_iter(ctx.thread_state) {
+    for thread_state in iter.as_iter(ctx.thread_state) {
         delete(&thread_state.value.instances);
         arena_free(&thread_state.value.instance_arena);
     }
@@ -132,7 +132,7 @@ close :: (ctx: ^ORMContext) {
     for^ ctx.models.entries {
         delete(^it.value.relationships, ctx.allocator);
 
-        for^ col: it.value.cols {
+        for^ col in it.value.cols {
             delete(^col.constraints, ctx.allocator);
             delete(^col.name, ctx.allocator);
         }
@@ -254,7 +254,7 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
 
         section_stack << .{};
 
-        for^ member: struct_info.members {
+        for^ member in struct_info.members {
             process_section_tags(member, ^section_stack);
 
             if process_member_if_relation(member, ^relations) {
@@ -279,7 +279,7 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
             col.primary_key = section_modifiers.primary_key;
 
             constraints := make([..] constraint, 0, allocator=ctx.allocator);
-            for^ tag: member.tags {
+            for^ tag in member.tags {
                 if tag.type == type_expr {
                     t := *cast(^type_expr) tag.data;
                     if t == unique      do col.unique      = true;
@@ -359,7 +359,7 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
     //
     // Second: check relationships on each model.
     for^ ctx.models.entries {
-        for^ rel: it.value.relationships {
+        for^ rel in it.value.relationships {
             related_model := ^ctx.models[rel.target_type];
 
             if related_model == null {
@@ -445,7 +445,7 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
             }
         }
 
-        for^ col: it.value.cols {
+        for^ col in it.value.cols {
             if col.foreign != null {
                 foreign_model := ^ctx.models[col.foreign.model];
                 if foreign_model == null {
@@ -470,7 +470,7 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
 
 #local
 process_section_tags :: (member, section_stack) => {
-    for^ tag: member.tags {
+    for^ tag in member.tags {
         if tag.type == section {
             s := *cast(^section) tag.data;
 
@@ -524,7 +524,7 @@ process_member_if_relation :: (member, relations) => {
         return true;
     }
 
-    for^ rel: member.tags {
+    for^ rel in member.tags {
         if array.contains(.[has_one, has_many, belongs_to, many_to_many], rel.type) {
             array.push(relations, .{
                 rel.type, rel.data, base_type, member
@@ -565,7 +565,7 @@ prepare_models_in_database :: (ctx: ^ORMContext) {
     to_create := make([..] ^ORMModel);
     defer delete(^to_create);
 
-    for^ entry: ctx.models.entries {
+    for^ entry in ctx.models.entries {
         if !array.contains(existing_tables, [t](t.table_name == entry.value.table_name && t.table_schema == entry.value.schema_name)) {
 
             to_create << ^entry.value;
@@ -588,12 +588,12 @@ prepare_models_in_database :: (ctx: ^ORMContext) {
     }
 
     // Ensure all of the columns are present.
-    for^ entry: ctx.models.entries {
+    for^ entry in ctx.models.entries {
         columns := ctx->quick_exec(Postgres_Table_Column,
             core.tprintf("SELECT * FROM information_schema.columns WHERE table_schema='{}' AND table_name='{}'",
                 entry.value.schema_name, entry.value.table_name));
 
-        for^ col: entry.value.cols {
+        for^ col in entry.value.cols {
            if !array.contains(columns, [](it.column_name == col.name)) {
                if !add_column_to_model(ctx, ^entry.value, col) {
                    logf(.Error, "Failed to add column '{}'.", col.name);
@@ -612,7 +612,7 @@ create_table_for_model :: (ctx: ^ORMContext, model: ^ORMModel) -> bool {
 
     io.write(^create_writer, "CREATE TABLE \"{}\".\"{}\" (", model.schema_name, model.table_name);
 
-    for^ col: model.cols {
+    for^ col in model.cols {
         if !#first do io.write(^create_writer, ", ");
 
         io.write(^create_writer, "{} {}", col.name, col.type);
