@@ -2,55 +2,53 @@ package postgres.orm
 
 use core {package, *}
 
-#inject
-ORMContext.load_related :: (ctx: ^ORMContext, obj_: any, field_name: ? str = .{}) {
-    obj := obj_;
-    if !strip_pointer_and_check_model(ctx, ^obj, require_primary_key=false) do return;
-    if obj.data == null do return;
+ORMContext.load_related :: (ctx: &ORMContext, obj_: any, field_name: ? str = .{}) {
+    obj := obj_
+    if !strip_pointer_and_check_model(ctx, &obj, require_primary_key=false) do return
+    if obj.data == null do return
 
-    model := ^ctx.models[obj.type];
+    model := &ctx.models[obj.type]
 
-    for^ rel in model.relationships {
+    for& rel in model.relationships {
         field_name->with([name] {
-            if rel.member_info.name != name do continue;
-        });
+            if rel.member_info.name != name do continue
+        })
 
         switch rel.relation_type {
-            case has_one      do load_has_one(ctx, obj, model, rel);
-            case belongs_to   do load_belongs_to(ctx, obj, model, rel);
-            case has_many     do load_has_many(ctx, obj, model, rel);
-            case many_to_many do load_many_to_many(ctx, obj, model, rel);
+            case has_one      do load_has_one(ctx, obj, model, rel)
+            case belongs_to   do load_belongs_to(ctx, obj, model, rel)
+            case has_many     do load_has_many(ctx, obj, model, rel)
+            case many_to_many do load_many_to_many(ctx, obj, model, rel)
         }
     }
 }
 
-#inject
-ORMContext.load_related_many :: (ctx: ^ORMContext, objs: [] rawptr, obj_type: type_expr, field_name: ? str = .{}) {
-    model := &ctx.models[obj_type];
-    if !model do return;
+ORMContext.load_related_many :: (ctx: &ORMContext, objs: [] rawptr, obj_type: type_expr, field_name: ? str = .{}) {
+    model := &ctx.models[obj_type]
+    if !model do return
 
     for& rel in model.relationships {
         field_name->with([name] {
-            if rel.member_info.name != name do continue;
-        });
+            if rel.member_info.name != name do continue
+        })
 
         switch rel.relation_type {
-            case belongs_to do load_bulk_belongs_to(ctx, objs, obj_type, model, rel);
+            case belongs_to do load_bulk_belongs_to(ctx, objs, obj_type, model, rel)
         }
     }
 
 
     // HACK
-    for^ rel in model.relationships {
+    for& rel in model.relationships {
         field_name->with([name] {
-            if rel.member_info.name != name do continue;
-        });
+            if rel.member_info.name != name do continue
+        })
         
         for obj in objs {
             switch rel.relation_type {
-                case has_one      do load_has_one(ctx, .{ obj, obj_type }, model, rel);
-                case has_many     do load_has_many(ctx, .{ obj, obj_type }, model, rel);
-                case many_to_many do load_many_to_many(ctx, .{ obj, obj_type }, model, rel);
+                case has_one      do load_has_one(ctx, .{ obj, obj_type }, model, rel)
+                case has_many     do load_has_many(ctx, .{ obj, obj_type }, model, rel)
+                case many_to_many do load_many_to_many(ctx, .{ obj, obj_type }, model, rel)
             }
         }
     }
@@ -58,129 +56,129 @@ ORMContext.load_related_many :: (ctx: ^ORMContext, objs: [] rawptr, obj_type: ty
 
 
 #local
-load_has_one :: (ctx: ^ORMContext, obj: any, model: ^ORMModel, rel: ^ORMRelation) {
-    has_one_rel := cast(^has_one) rel.relation_data;
+load_has_one :: (ctx: &ORMContext, obj: any, model: &ORMModel, rel: &ORMRelation) {
+    has_one_rel := cast(&has_one) rel.relation_data
 
-    q: QueryBuilder;
-    q->init(rel.target_type, ctx);
+    q: QueryBuilder
+    q->init(rel.target_type, ctx)
 
-    obj_base := cast([^] u8) obj.data;
+    obj_base := cast([&] u8) obj.data
     key := do {
-        col := model.primary_col; 
-        if !string.empty(has_one_rel.local_key) {
-            col = array.find(model.cols, [](it.name == has_one_rel.local_key));
+        col := model.primary_col
+        if !str.empty(has_one_rel.local_key) {
+            col = Array.find(model.cols, [](it.name == has_one_rel.local_key))
         }
         
-        return ^model.cols[col];
-    };
+        return &model.cols[col]
+    }
 
     q->filter(tprintf("{\"}=%", has_one_rel.foreign_key), .[
         .{
             obj_base + key.member_info.offset,
             key.onyx_type
         }
-    ]);
-    q->limit(1);
+    ])
+    q->limit(1)
 
-    result := q->first();
-    *cast(^rawptr) (obj_base + rel.member_info.offset) = result;
+    result := q->first()
+    *cast(&rawptr) (obj_base + rel.member_info.offset) = result
 }
 
 #local
-load_belongs_to :: (ctx: ^ORMContext, obj: any, model: ^ORMModel, rel: ^ORMRelation) {
-    belongs_to_rel := cast(^belongs_to) rel.relation_data;
+load_belongs_to :: (ctx: &ORMContext, obj: any, model: &ORMModel, rel: &ORMRelation) {
+    belongs_to_rel := cast(&belongs_to) rel.relation_data
 
-    q: QueryBuilder;
-    q->init(rel.target_type, ctx);
+    q: QueryBuilder
+    q->init(rel.target_type, ctx)
 
-    obj_base := cast([^] u8) obj.data;
+    obj_base := cast([&] u8) obj.data
     key := do {
-        col := array.find(model.cols, [](it.name == belongs_to_rel.local_key));
-        return ^model.cols[col];
-    };
+        col := Array.find(model.cols, [](it.name == belongs_to_rel.local_key))
+        return &model.cols[col]
+    }
 
     foreign_key := do {
-        if string.empty(belongs_to_rel.foreign_key) {
-            foreign_model := ^ctx.models[rel.target_type];
-            return foreign_model.cols[foreign_model.primary_col].name;
+        if str.empty(belongs_to_rel.foreign_key) {
+            foreign_model := &ctx.models[rel.target_type]
+            return foreign_model.cols[foreign_model.primary_col].name
 
         } else {
-            return belongs_to_rel.foreign_key;
+            return belongs_to_rel.foreign_key
         }
-    };
+    }
 
     q->filter(tprintf("{\"}=%", foreign_key), .[
         .{
             obj_base + key.member_info.offset,
             key.onyx_type
         }
-    ]);
-    q->limit(1);
+    ])
+    q->limit(1)
 
-    result := q->first();
-    *cast(^rawptr) (obj_base + rel.member_info.offset) = result;
+    result := q->first()
+    *cast(&rawptr) (obj_base + rel.member_info.offset) = result
 }
 
 #local
 load_bulk_belongs_to :: (ctx: &ORMContext, objs: [] rawptr, obj_type: type_expr, model: &ORMModel, rel: &ORMRelation) {
-    belongs_to_rel := cast(&belongs_to) rel.relation_data;
+    belongs_to_rel := cast(&belongs_to) rel.relation_data
 
-    q: QueryBuilder;
-    q->init(rel.target_type, ctx);
+    q: QueryBuilder
+    q->init(rel.target_type, ctx)
 
     key := do {
-        col := array.find(model.cols, [](it.name == belongs_to_rel.local_key));
-        return ^model.cols[col];
-    };
+        col := Array.find(model.cols, [](it.name == belongs_to_rel.local_key))
+        return &model.cols[col]
+    }
 
-    inclusion_string: dyn_str;
-    string.append(&inclusion_string, "{");
+    inclusion_string: dyn_str
+    dyn_str.append(&inclusion_string, "{")
 
-    key_member_offset := key.member_info.offset;
-    key_member_type   := key.member_info.type;
+    key_member_offset := key.member_info.offset
+    key_member_type   := key.member_info.type
 
     for objs {
-        obj_base := cast([&] u8) it;
+        obj_base := cast([&] u8) it
 
-        if !#first do string.append(&inclusion_string, ",");
+        if !#first do dyn_str.append(&inclusion_string, ",")
 
         conv.format_va(&inclusion_string, "{'d}", any.[
             any.{ obj_base + key_member_offset, key_member_type }
-        ]);
+        ])
     }
 
-    string.append(&inclusion_string, "}");
+    dyn_str.append(&inclusion_string, "}")
 
     foreign_key := do {
-        if string.empty(belongs_to_rel.foreign_key) {
-            foreign_model := ^ctx.models[rel.target_type];
-            return foreign_model.cols[foreign_model.primary_col].name;
+        if str.empty(belongs_to_rel.foreign_key) {
+            foreign_model := &ctx.models[rel.target_type]
+            return foreign_model.cols[foreign_model.primary_col].name
 
         } else {
-            return belongs_to_rel.foreign_key;
+            return belongs_to_rel.foreign_key
         }
-    };
+    }
 
-    q->filter(tprintf("{\"} = ANY(%)", foreign_key), cast(str) inclusion_string);
+    q->filter(tprintf("{\"} = ANY(%)", foreign_key), cast(str) inclusion_string)
 
-    results := q->all();
-    if !results do return;
+    results := q->all()
+    if !results do return
 
     foreign_key_member := do {
-        foreign_model := &ctx.models[rel.target_type];
+        foreign_model := &ctx.models[rel.target_type]
         if foreign_model {
-            return array.first(foreign_model.cols, [](it.name == foreign_key));
+            return Array.first(foreign_model.cols, [](it.name == foreign_key))
         }
 
-        return null;
-    };
+        return null
+    }
 
-    if !foreign_key_member do return;
+    if !foreign_key_member do return
 
     for objs {
-        obj_base := cast([&] u8) it;
+        obj_base := cast([&] u8) it
 
-        matched_result := array.find_opt(
+        matched_result := Array.find_opt(
             results,
             [x](
                 anys_equal(
@@ -188,11 +186,11 @@ load_bulk_belongs_to :: (ctx: &ORMContext, objs: [] rawptr, obj_type: type_expr,
                     any.{ obj_base + key_member_offset, key_member_type },
                 )
             )
-        );
+        )
 
         switch matched_result {
             case .Some as v {
-                *cast(&rawptr) (obj_base + rel.member_info.offset) = v;
+                *cast(&rawptr) (obj_base + rel.member_info.offset) = v
             }
 
             case .None ---
@@ -201,103 +199,103 @@ load_bulk_belongs_to :: (ctx: &ORMContext, objs: [] rawptr, obj_type: type_expr,
 }
 
 #local
-load_has_many :: (ctx: ^ORMContext, obj: any, model: ^ORMModel, rel: ^ORMRelation) {
-    has_many_rel := cast(^has_many) rel.relation_data;
+load_has_many :: (ctx: &ORMContext, obj: any, model: &ORMModel, rel: &ORMRelation) {
+    has_many_rel := cast(&has_many) rel.relation_data
 
-    q: QueryBuilder;
-    q->init(rel.target_type, ctx);
+    q: QueryBuilder
+    q->init(rel.target_type, ctx)
 
-    obj_base := cast([^] u8) obj.data;
+    obj_base := cast([&] u8) obj.data
     key := do {
-        col := model.primary_col; 
-        if !string.empty(has_many_rel.local_key) {
-            col = array.find(model.cols, [](it.name == has_many_rel.local_key));
+        col := model.primary_col
+        if !str.empty(has_many_rel.local_key) {
+            col = Array.find(model.cols, [](it.name == has_many_rel.local_key))
         }
         
-        return ^model.cols[col];
-    };
+        return &model.cols[col]
+    }
 
     q->filter(tprintf("{\"}=%", has_many_rel.foreign_key), .[
         .{
             obj_base + key.member_info.offset,
             key.onyx_type
         }
-    ]);
+    ])
 
-    result := q->all();
+    result := q->all()
 
-    output := cast(^[] rawptr) (obj_base + rel.member_info.offset);
-    *output = make([] rawptr, result.count, ctx->get_state()->instance_allocator());
+    output := cast(&[] rawptr) (obj_base + rel.member_info.offset)
+    *output = make([] rawptr, result.count, ctx->get_state()->instance_allocator())
 
     for result.count {
-        output.data[it] = result[it];
+        output.data[it] = result[it]
     }
 }
 
 #local
-load_many_to_many :: (ctx: ^ORMContext, obj: any, model: ^ORMModel, rel: ^ORMRelation) {
-    many_to_many_rel := cast(^many_to_many) rel.relation_data;
+load_many_to_many :: (ctx: &ORMContext, obj: any, model: &ORMModel, rel: &ORMRelation) {
+    many_to_many_rel := cast(&many_to_many) rel.relation_data
 
-    model         := ^ctx.models[obj.type];
-    mapping_model := ^ctx.models[many_to_many_rel.mapping_model];
-    obj_base      := cast([^] u8) obj.data;
+    model         := &ctx.models[obj.type]
+    mapping_model := &ctx.models[many_to_many_rel.mapping_model]
+    obj_base      := cast([&] u8) obj.data
 
     Map_Wrapper :: struct {
-        id: str;
+        id: str
     }
 
     values := do {
-        primary_key := ^model.cols[model.primary_col];
+        primary_key := &model.cols[model.primary_col]
 
         cmd := conv.format_va("SELECT \"{}\" as id FROM \"{}\".\"{}\" WHERE \"{}\"={'d};", any.[
-            as_any(^many_to_many_rel.result_key),
-            as_any(^mapping_model.schema_name),
-            as_any(^mapping_model.table_name),
-            as_any(^many_to_many_rel.lookup_key),
+            as_any(&many_to_many_rel.result_key),
+            as_any(&mapping_model.schema_name),
+            as_any(&mapping_model.table_name),
+            as_any(&many_to_many_rel.lookup_key),
             .{
                 obj_base + primary_key.member_info.offset,
                 primary_key.onyx_type
             }
-        ]);
+        ])
 
-        return ctx->quick_exec(Map_Wrapper, cmd);
-    };
-    defer delete(^values);
+        return ctx->quick_exec(Map_Wrapper, cmd)
+    }
+    defer delete(&values)
 
     id_list := do {
-        list_writer, id_list := io.string_builder();
+        list_writer, id_list := io.string_builder()
 
-        io.write(^list_writer, "{");
+        io.write(&list_writer, "{")
         for values {
-            if !#first do io.write(^list_writer, ", ");
-            io.write(^list_writer, "{}", it.id);
+            if !#first do io.write(&list_writer, ", ")
+            io.write(&list_writer, "{}", it.id)
         }
-        io.write(^list_writer, "}");
+        io.write(&list_writer, "}")
 
-        return id_list;
-    };
-    defer delete(id_list);
+        return id_list
+    }
+    defer delete(id_list)
 
     result := do {
-        q: QueryBuilder;
-        q->init(rel.target_type, ctx);
+        q: QueryBuilder
+        q->init(rel.target_type, ctx)
 
-        target_model := ^ctx.models[rel.target_type];
+        target_model := &ctx.models[rel.target_type]
         q->filter(
             tprintf("{\"} = ANY(%)", target_model.cols[target_model.primary_col].name),
-            string.as_str(id_list));
+            str.as_str(id_list))
 
-        q->order(target_model.cols[target_model.primary_col].name, .ASC);
+        q->order(target_model.cols[target_model.primary_col].name, .ASC)
 
-        return q->all();
-    };
-
-    output := cast(^[] rawptr) (obj_base + rel.member_info.offset);
-    *output = make([] rawptr, result.count, ctx->get_state()->instance_allocator());
-
-    for result.count {
-        output.data[it] = result[it];
+        return q->all()
     }
 
-    as_any :: macro (x: ^$T) => any.{ x, T };
+    output := cast(&[] rawptr) (obj_base + rel.member_info.offset)
+    *output = make([] rawptr, result.count, ctx->get_state()->instance_allocator())
+
+    for result.count {
+        output.data[it] = result[it]
+    }
+
+    as_any :: macro (x: &$T) => any.{ x, T }
 }

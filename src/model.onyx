@@ -3,317 +3,297 @@ package postgres.orm
 use core {package, *}
 use runtime
 
-#doc """
-    Adds a new instance of a model the database.
-    'data' should be a *pointer* to a known model type
-    (a structure that was tagged with 'orm.model').
-
-    Sample usage:
-        @orm.model.{"thing"}
-        Thing :: struct {
-            @orm.primary_key id: serial32;
-            name: str;
-        }
-
-        thing := Thing.{ name="demo" };
-        ctx->add(^thing);
-
-        // thing.id is now set here
-        printf("thing.id is {}\n.", thing.id);
-"""
-#inject
-ORMContext.add :: macro (ctx: ^ORMContext, data: ^$T) -> ^T {
+/// Adds a new instance of a model the database.
+/// 'data' should be a *pointer* to a known model type
+/// (a structure that was tagged with 'orm.model').
+///
+/// Sample usage:
+///     @orm.model.{"thing"}
+///     Thing :: struct {
+///         @orm.primary_key id: serial32
+///         name: str
+///     }
+///
+///     thing := Thing.{ name="demo" }
+///     ctx->add(&thing)
+///
+///     // thing.id is now set here
+///     printf("thing.id is {}\n.", thing.id)
+ORMContext.add :: macro (ctx: &ORMContext, data: &$T) -> &T {
     internal_add :: internal_add
-    return cast(^T) internal_add(ctx, any.{ data, T });
+    return cast(&T) internal_add(ctx, any.{ data, T })
 }
 
 #local
-internal_add :: (ctx: ^ORMContext, data: any) -> rawptr {
-    if !(ctx.models->has(data.type)) do return null;
+internal_add :: (ctx: &ORMContext, data: any) -> rawptr {
+    if !(ctx.models->has(data.type)) do return null
 
-    model   := ^ctx.models[data.type];
-    columns := get_columns_from_value(model, data);
+    model   := &ctx.models[data.type]
+    columns := get_columns_from_value(model, data)
 
-    insert_writer, insert_command := io.string_builder();
-    defer delete(insert_command);
+    insert_writer, insert_command := io.string_builder()
+    defer delete(insert_command)
 
-    values: [..] any;
-    defer delete(&values);
+    values: [..] any
+    defer delete(&values)
 
-    io.write(^insert_writer, "INSERT INTO \"{}\".\"{}\"",
-        model.schema_name, model.table_name);
+    io.write(&insert_writer, "INSERT INTO \"{}\".\"{}\"",
+        model.schema_name, model.table_name)
 
     if columns.count > 0 {
-        io.write(^insert_writer, " (");
+        io.write(&insert_writer, " (")
 
-        for^ columns {
-            if !#first do io.write(^insert_writer, ", ");
+        for& columns {
+            if !#first do io.write(&insert_writer, ", ")
 
-            io.write(^insert_writer, "\"{}\"", it.name);
+            io.write(&insert_writer, "\"{}\"", it.name)
         }
 
-        io.write(^insert_writer, ") VALUES (");
+        io.write(&insert_writer, ") VALUES (")
 
-        index := 1;
-        for^ columns {
-            if !#first do io.write(^insert_writer, ", ");
+        index := 1
+        for& columns {
+            if !#first do io.write(&insert_writer, ", ")
 
-            io.write(^insert_writer, "${}", index);
-            index += 1;
+            io.write(&insert_writer, "${}", index)
+            index += 1
 
-            array.push(&values, it.value);
+            Array.push(&values, it.value)
         }
 
-        io.write(^insert_writer, ")");
+        io.write(&insert_writer, ")")
     }
 
-    io.write(^insert_writer, " RETURNING *;");
+    io.write(&insert_writer, " RETURNING *;")
 
-    cmd := string.as_str(insert_command);
-    res := ctx->exec_params_log(cmd, values)->or_return(null);
+    cmd := str.as_str(insert_command)
+    res := ctx->exec_params_log(cmd, values)->or_return(null)
 
     if res->status() == .Tuples_Ok {
         if model.primary_col >= 0 {
-            instances := lookup_or_create_instances(ctx, data.type, ^res);
-            defer delete(^instances);
+            instances := lookup_or_create_instances(ctx, data.type, &res)
+            defer delete(&instances)
 
-            if instances.count == 0 do return null;
-            return instances[0];
+            if instances.count == 0 do return null
+            return instances[0]
 
         } else {
-            state := ctx->get_state();
-            new_data := new(data.type, state->instance_allocator());
-            postgres.result_to_struct(^res, 0, data.type, ~~ new_data, ctx.allocator);
-            res->clear();
-            return new_data;
+            state := ctx->get_state()
+            new_data := new(data.type, state->instance_allocator())
+            postgres.result_to_struct(&res, 0, data.type, ~~ new_data, ctx.allocator)
+            res->clear()
+            return new_data
         }
     }
 
-    logf(.Error, "Postgres: {}", res->error_message());
-    return null;
+    logf(.Error, "Postgres: {}", res->error_message())
+    return null
 }
 
-#doc """
-    Updates the data of an instance of a model in the database.
-    Uses the primary key of the model to select which row to change.
-"""
-#inject
-ORMContext.save :: (ctx: ^ORMContext, data_: any) -> bool {
-    data := data_;
-    if !strip_pointer_and_check_model(ctx, ^data) do return false;
-    if data.data == null do return false;
+/// Updates the data of an instance of a model in the database.
+/// Uses the primary key of the model to select which row to change.
+ORMContext.save :: (ctx: &ORMContext, data_: any) -> bool {
+    data := data_
+    if !strip_pointer_and_check_model(ctx, &data) do return false
+    if data.data == null do return false
 
-    model   := ^ctx.models[data.type];
-    columns := get_columns_from_value(model, data, skip_primary_key=true);
-    if columns.length == 0 do return true;
+    model   := &ctx.models[data.type]
+    columns := get_columns_from_value(model, data, skip_primary_key=true)
+    if columns.length == 0 do return true
 
-    q: QueryBuilder;
-    q->init(data.type, ctx);
+    q: QueryBuilder
+    q->init(data.type, ctx)
 
-    primary_key := ^model.cols[model.primary_col];
+    primary_key := &model.cols[model.primary_col]
     q->filter(tprintf("{\"}=%", primary_key.name), any.[
         .{
-            cast([^] u8) data.data + primary_key.member_info.offset,
+            cast([&] u8) data.data + primary_key.member_info.offset,
             primary_key.onyx_type
         }
-    ]);
+    ])
 
-    return q->update(columns) > 0;
+    return q->update(columns) > 0
 }
 
-#doc """
-    Deletes an instance of a model from the database.
-    Uses the primary key of the model to select which row to delete.
-"""
-#inject
-ORMContext.delete :: (ctx: ^ORMContext, data_: any) -> bool {
-    data := data_;
-    if !strip_pointer_and_check_model(ctx, ^data) do return false;
-    if data.data == null do return false;
+/// Deletes an instance of a model from the database.
+/// Uses the primary key of the model to select which row to delete.
+ORMContext.delete :: (ctx: &ORMContext, data_: any) -> bool {
+    data := data_
+    if !strip_pointer_and_check_model(ctx, &data) do return false
+    if data.data == null do return false
 
-    model       := ^ctx.models[data.type];
-    primary_key := ^model.cols[model.primary_col];
+    model       := &ctx.models[data.type]
+    primary_key := &model.cols[model.primary_col]
 
-    q: QueryBuilder;
-    q->init(data.type, ctx);
+    q: QueryBuilder
+    q->init(data.type, ctx)
 
     q->filter(tprintf("{\"}=%", primary_key.name), any.[
         .{
-            cast([^] u8) data.data + primary_key.member_info.offset,
+            cast([&] u8) data.data + primary_key.member_info.offset,
             primary_key.onyx_type
         }
-    ]);
+    ])
 
     if q->delete() > 0 {
-        memory.set(data.data, 0, runtime.info.size_of(data.type));
-        return true;
+        memory.set(data.data, 0, runtime.info.size_of(data.type))
+        return true
 
     } else {
-        return false;
+        return false
     }
 }
 
-#doc """
-    Finds an instance of a model using the primary key.
-    This is a shorthand for `->query(Model)->filter("primary_key={}", pk)->first()`
-"""
-#inject
-ORMContext.find :: (ctx: ^ORMContext, $T: type_expr, key: any) -> ^T {
-    if !(ctx.models->has(T)) do return null;
+/// Finds an instance of a model using the primary key.
+/// This is a shorthand for `->query(Model)->filter("primary_key={}", pk)->first()`
+ORMContext.find :: (ctx: &ORMContext, $T: type_expr, key: any) -> &T {
+    if !(ctx.models->has(T)) do return null
 
-    model       := ^ctx.models[T];
-    primary_key := ^model.cols[model.primary_col];
+    model       := &ctx.models[T]
+    primary_key := &model.cols[model.primary_col]
 
-    q: QueryBuilder;
-    q->init(T, ctx);
+    q: QueryBuilder
+    q->init(T, ctx)
 
     q->filter(tprintf("{\"}=%", primary_key.name), any.[
         key
-    ]);
-    q->limit(1);
+    ])
+    q->limit(1)
 
-    return q->first();
+    return q->first()
 }
 
-#doc """
-    For two objects that are in a many to many relationship,
-    this procedure adds a row to their intermediate table,
-    thus creating a link between the two objects. If there
-    are other properties on the intermediate object, they are
-    left as their default or zero-value.
+/// For two objects that are in a many to many relationship,
+/// this procedure adds a row to their intermediate table,
+/// thus creating a link between the two objects. If there
+/// are other properties on the intermediate object, they are
+/// left as their default or zero-value.
+///
+/// Returns a pointer to the newly created link on success
+/// null on failure.
+///
+/// Note that the pointer is returned as a rawptr, instead of
+/// a pointer to the intermediate object. This is because currently,
+/// there is no way for the compiler to know what the type
+/// represents the intermediate table. You will need to cast
+/// this pointer to the correct type if you want to use it.
+ORMContext.link :: (ctx: &ORMContext, elem1_: any, elem2_: any) -> rawptr {
+    elem1, elem2 := elem1_, elem2_
+    if !strip_pointer_and_check_model(ctx, &elem1) do return null
+    if !strip_pointer_and_check_model(ctx, &elem2) do return null
+    if elem1.data == null do return null
+    if elem2.data == null do return null
 
-    Returns a pointer to the newly created link on success;
-    null on failure.
+    model1 := &ctx.models[elem1.type]
+    model2 := &ctx.models[elem2.type]
 
-    Note that the pointer is returned as a rawptr, instead of
-    a pointer to the intermediate object. This is because currently,
-    there is no way for the compiler to know what the type
-    represents the intermediate table. You will need to cast
-    this pointer to the correct type if you want to use it.
-"""
-#inject
-ORMContext.link :: (ctx: ^ORMContext, elem1_: any, elem2_: any) -> rawptr {
-    elem1, elem2 := elem1_, elem2_;
-    if !strip_pointer_and_check_model(ctx, ^elem1) do return null;
-    if !strip_pointer_and_check_model(ctx, ^elem2) do return null;
-    if elem1.data == null do return null;
-    if elem2.data == null do return null;
+    pk1 := &model1.cols[model1.primary_col]
+    pk2 := &model2.cols[model2.primary_col]
 
-    model1 := ^ctx.models[elem1.type];
-    model2 := ^ctx.models[elem2.type];
+    join_type := void
+    many_to_many_rel: &many_to_many
 
-    pk1 := ^model1.cols[model1.primary_col];
-    pk2 := ^model2.cols[model2.primary_col];
-
-    join_type := void;
-    many_to_many_rel: ^many_to_many;
-
-    for^ model1.relationships {
-        if it.relation_type != many_to_many do continue;
+    for& model1.relationships {
+        if it.relation_type != many_to_many do continue
 
         if it.target_type == elem2.type {
-            many_to_many_rel = cast(^many_to_many) it.relation_data;
-            join_type = many_to_many_rel.mapping_model;
-            break;
+            many_to_many_rel = cast(&many_to_many) it.relation_data
+            join_type = many_to_many_rel.mapping_model
+            break
         }
     }
 
-    if join_type == void do return null;
+    if join_type == void do return null
 
-    state := ctx->get_state();
-    join_object := new(join_type, state->instance_allocator());
-    join_model  := ^ctx.models[join_type];
+    state := ctx->get_state()
+    join_object := new(join_type, state->instance_allocator())
+    join_model  := &ctx.models[join_type]
 
-    pk1_link_offset := array.first(join_model.cols, [](it.name == many_to_many_rel.lookup_key)).member_info.offset;
-    pk2_link_offset := array.first(join_model.cols, [](it.name == many_to_many_rel.result_key)).member_info.offset;
+    pk1_link_offset := Array.first(join_model.cols, [](it.name == many_to_many_rel.lookup_key)).member_info.offset
+    pk2_link_offset := Array.first(join_model.cols, [](it.name == many_to_many_rel.result_key)).member_info.offset
 
     // join_object.key1 = elem1.key1
-    memory.copy(cast([^] u8) join_object + pk1_link_offset,
-        cast([^] u8) elem1.data + pk1.member_info.offset,
-        runtime.info.size_of(pk1.onyx_type));
+    memory.copy(cast([&] u8) join_object + pk1_link_offset,
+        cast([&] u8) elem1.data + pk1.member_info.offset,
+        runtime.info.size_of(pk1.onyx_type))
 
     // join_object.key2 = elem1.key2
-    memory.copy(cast([^] u8) join_object + pk2_link_offset,
-        cast([^] u8) elem2.data + pk2.member_info.offset,
-        runtime.info.size_of(pk2.onyx_type));
+    memory.copy(cast([&] u8) join_object + pk2_link_offset,
+        cast([&] u8) elem2.data + pk2.member_info.offset,
+        runtime.info.size_of(pk2.onyx_type))
 
-    join_object = internal_add(ctx, .{join_object, join_type});
-    return join_object;
+    join_object = internal_add(ctx, .{join_object, join_type})
+    return join_object
 }
 
-#doc """
-    Opposite of link. This procedure removes the row of an
-    intermediate table in a many to many relationship that links
-    two objects together. Shorthand for:
-
-    `->query(IntermediateTable)->filter("key1={}", key1)->filter("key2={}", key2)->delete();`
-"""
-#inject
-ORMContext.unlink :: (ctx: ^ORMContext, elem1_: any, elem2_: any) -> bool {
+/// Opposite of link. This procedure removes the row of an
+/// intermediate table in a many to many relationship that links
+/// two objects together. Shorthand for:
+///
+/// `->query(IntermediateTable)->filter("key1={}", key1)->filter("key2={}", key2)->delete();`
+ORMContext.unlink :: (ctx: &ORMContext, elem1_: any, elem2_: any) -> bool {
     //
     // This copies a lot of code from link(), so there should be some kind
     // of refactoring that can go on here...
     //
-    elem1, elem2 := elem1_, elem2_;
-    if !strip_pointer_and_check_model(ctx, ^elem1) do return false;
-    if !strip_pointer_and_check_model(ctx, ^elem2) do return false;
-    if elem1.data == null do return false;
-    if elem2.data == null do return false;
+    elem1, elem2 := elem1_, elem2_
+    if !strip_pointer_and_check_model(ctx, &elem1) do return false
+    if !strip_pointer_and_check_model(ctx, &elem2) do return false
+    if elem1.data == null do return false
+    if elem2.data == null do return false
 
-    model1 := ^ctx.models[elem1.type];
-    model2 := ^ctx.models[elem2.type];
+    model1 := &ctx.models[elem1.type]
+    model2 := &ctx.models[elem2.type]
 
-    pk1 := ^model1.cols[model1.primary_col];
-    pk2 := ^model2.cols[model2.primary_col];
+    pk1 := &model1.cols[model1.primary_col]
+    pk2 := &model2.cols[model2.primary_col]
 
-    join_type := void;
-    many_to_many_rel: ^many_to_many;
+    join_type := void
+    many_to_many_rel: &many_to_many
 
-    for^ model1.relationships {
-        if it.relation_type != many_to_many do continue;
+    for& model1.relationships {
+        if it.relation_type != many_to_many do continue
 
         if it.target_type == elem2.type {
-            many_to_many_rel = cast(^many_to_many) it.relation_data;
-            join_type = many_to_many_rel.mapping_model;
-            break;
+            many_to_many_rel = cast(&many_to_many) it.relation_data
+            join_type = many_to_many_rel.mapping_model
+            break
         }
     }
 
-    if join_type == void do return false;
+    if join_type == void do return false
 
-    q: QueryBuilder;
-    q->init(join_type, ctx);
+    q: QueryBuilder
+    q->init(join_type, ctx)
 
     q->filter(tprintf("{\"}=%", many_to_many_rel.lookup_key), any.[
-        .{ cast([^] u8) elem1.data + pk1.member_info.offset, pk1.onyx_type },
-    ]);
+        .{ cast([&] u8) elem1.data + pk1.member_info.offset, pk1.onyx_type },
+    ])
 
     q->filter(tprintf("{\"}=%", many_to_many_rel.result_key), any.[
-        .{ cast([^] u8) elem2.data + pk2.member_info.offset, pk2.onyx_type },
-    ]);
+        .{ cast([&] u8) elem2.data + pk2.member_info.offset, pk2.onyx_type },
+    ])
 
-    return q->delete() > 0;
+    return q->delete() > 0
 }
 
 
 #local
-#doc """
-    Return an array of column that should be included when doing an UPDATE or INSERT.
-    The returned array is allocated in the temporary allocator.
-"""
-get_columns_from_value :: (model: ^ORMModel, data: any, skip_primary_key := false) => {
-    cols := make([..] ColumnUpdate, model.cols.length, allocator=context.temp_allocator);
+/// Return an array of column that should be included when doing an UPDATE or INSERT.
+/// The returned array is allocated in the temporary allocator.
+get_columns_from_value :: (model: &ORMModel, data: any, skip_primary_key := false) => {
+    cols := make([..] ColumnUpdate, model.cols.length, allocator=context.temp_allocator)
 
-    for^ model.cols {
-        if it.primary_key && skip_primary_key do continue;
+    for& model.cols {
+        if it.primary_key && skip_primary_key do continue
 
-        value := any.{ cast([^] u8) data.data + it.member_info.offset, it.onyx_type };
+        value := any.{ cast([&] u8) data.data + it.member_info.offset, it.onyx_type }
 
         if is_zero_value(value) && it.primary_key
         {
             // If no id was specified for the primary key,
             // assume the key is automatically generated.
-            continue;
+            continue
         }
 
         // @TODO Double check this condition because it does not make
@@ -321,11 +301,11 @@ get_columns_from_value :: (model: ^ORMModel, data: any, skip_primary_key := fals
         // if runtime.info.union_constructed_from(it.onyx_type, Optional) ||
         //     !is_zero_value(value) ||
         //     (it.not_null && !(it->has_default())) {
-        //     cols << .{ it.name, value };
+        //     cols << .{ it.name, value }
         // }
 
-        cols << .{ it.name, value };
+        cols << .{ it.name, value }
     }
 
-    return cols;
+    return cols
 }

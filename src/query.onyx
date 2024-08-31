@@ -22,188 +22,172 @@ use core {package, *}
 //
 
 Query :: struct (table_type: type_expr) {
-    builder: ^QueryBuilder;
+    builder: &QueryBuilder
 }
 
-#inject
-ORMContext.query :: (ctx: ^ORMContext, $type: type_expr, name := "") -> Query(type) {
+ORMContext.query :: (ctx: &ORMContext, $type: type_expr, name := "") -> Query(type) {
     Query :: Query
     QueryBuilder :: QueryBuilder
 
-    q: Query(type);
-    q.builder = new(QueryBuilder, allocator=ctx.allocator);
-    q.builder->init(type, ctx, name);
-    return q;
+    q: Query(type)
+    q.builder = new(QueryBuilder, allocator=ctx.allocator)
+    q.builder->init(type, ctx, name)
+    return q
 }
 
-#inject
 Query.select :: (q: Query, selection: str) => {
-    q.builder->select(selection);
-    return q;
+    q.builder->select(selection)
+    return q
 }
 
 
-#inject
 Query.join :: #match #local {}
 
 #overload
 Query.join :: (q: Query, join_kind: JoinKind, table: type_expr, name: str, cond: str, values: [] any) => {
-    q.builder->join(join_kind, table, name, cond, values);
-    return q;
+    q.builder->join(join_kind, table, name, cond, values)
+    return q
 }
 
 #overload
 Query.join :: (q: Query, join_kind: JoinKind, table: type_expr, name: str, cond: str, values: ..any) => {
-    q.builder->join(join_kind, table, name, cond, cast([] any) values);
-    return q;
+    q.builder->join(join_kind, table, name, cond, cast([] any) values)
+    return q
 }
 
 
-#inject
 Query.filter :: #match #local {}
 
 #overload
 Query.filter :: (q: Query, filter: str) => {
-    q.builder->filter(filter);
-    return q;
+    q.builder->filter(filter)
+    return q
 }
 
 #overload
 Query.filter :: (q: Query, filter_format: str, values: [] any) => {
-    q.builder->filter(filter_format, values);
-    return q;
+    q.builder->filter(filter_format, values)
+    return q
 }
 
 // @Cleanup  make this a macro when macros support any
 #overload
 Query.filter :: (q: Query, filter_format: str, values: ..any) => {
-    q.builder->filter(filter_format, values);
-    return q;
+    q.builder->filter(filter_format, values)
+    return q
 }
 
 
-#inject
 Query.having :: #match #local {}
 
 #overload
 Query.having :: (q: Query, having: str) => {
-    q.builder->having(having);
-    return q;
+    q.builder->having(having)
+    return q
 }
 
 #overload
 Query.having :: (q: Query, having_format: str, values: [] any) => {
-    q.builder->having(having_format, values);
-    return q;
+    q.builder->having(having_format, values)
+    return q
 }
 
 // @Cleanup  make this a macro when macros support any
 #overload
 Query.having :: (q: Query, having_format: str, values: ..any) => {
-    q.builder->having(filter_format, values);
-    return q;
+    q.builder->having(filter_format, values)
+    return q
 }
 
 
-#inject
 Query.order :: (q: Query, field: str, ord: QueryOrdering) => {
-    q.builder->order(field, ord);
-    return q;
+    q.builder->order(field, ord)
+    return q
 }
 
 
-#inject
 Query.group :: #match #local {}
 
 #overload
 Query.group :: (q: Query, group: str) => {
-    q.builder->group(group);
-    return q;
+    q.builder->group(group)
+    return q
 }
 
 // @Cleanup
 #overload
 Query.group :: (q: Query, group_format: str, values: .. any) => {
-    q.builder->group(group_format, values);
-    return q;
+    q.builder->group(group_format, values)
+    return q
 }
 
 
-#inject
 Query.include :: (q: Query, inclusions: ..str) => {
-    q.builder->include(cast([] str) inclusions);
-    return q;
+    q.builder->include(cast([] str) inclusions)
+    return q
 }
 
 
-#inject
 Query.limit :: (q: Query, limit: u32) => {
-    q.builder.limit = limit;
-    return q;
+    q.builder.limit = limit
+    return q
 }
 
-#inject
 Query.offset :: (q: Query, offset: u32) => {
-    q.builder.offset = offset;
-    return q;
+    q.builder.offset = offset
+    return q
 }
 
 
-#inject
 Query.all :: #match #local {}
 
 #overload
-Query.all :: (q: Query($T), $return_type: type_expr) -> [] ^return_type {
-    results := q.builder->all(return_type); 
-    return .{ data = ~~ results.data, count = results.count };
+Query.all :: (q: Query($T), $return_type: type_expr) -> [] &return_type {
+    results := q.builder->all(return_type)
+    return .{ data = ~~ results.data, count = results.count }
 }
 
 #overload
-Query.all :: (q: Query) -> [] ^q.table_type {
-    return ~~ q.builder->all();
+Query.all :: (q: Query) -> [] &q.table_type {
+    return ~~ q.builder->all()
 }
 
-#inject
 Query.first :: #match #local {}
 
 #overload
-Query.first :: (q: Query($_), $return_type: type_expr) -> ^return_type {
-    q_ := q;
-    return ~~ q_.builder->first(return_type);
+Query.first :: (q: Query($_), $return_type: type_expr) -> &return_type {
+    q_ := q
+    return ~~ q_.builder->first(return_type)
 }
 
 #overload
-Query.first :: (q: Query) -> ^q.table_type {
- return ~~ q.builder->first();
+Query.first :: (q: Query) -> &q.table_type {
+ return ~~ q.builder->first()
 }
 
 
 
-#inject
-Query.find :: (q: Query, key: any) -> ^q.table_type {
-    return ~~ q.builder->find(key);
+Query.find :: (q: Query, key: any) -> &q.table_type {
+    return ~~ q.builder->find(key)
 }
 
-#inject
 Query.delete :: (q: Query) -> i32 {
-    return q.builder->delete();
+    return q.builder->delete()
 }
 
-#inject
 Query.update :: #match #local {}
 
 #overload
 Query.update :: (q: Query, values: [] ColumnUpdate) -> i32 {
-    return q.builder->update(values);
+    return q.builder->update(values)
 }
 
 #overload
 Query.update :: (q: Query, field: str, value: any) -> i32 {
-    return q.builder->update(field, value);
+    return q.builder->update(field, value)
 }
 
-#inject
 Query.count :: (q: Query) -> i32 {
-    return q.builder->count();
+    return q.builder->count()
 }
 

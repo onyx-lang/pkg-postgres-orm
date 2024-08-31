@@ -10,84 +10,84 @@ use runtime.info {
 
 Binary :: #distinct [] u8
 #init #after core.conv.custom_formatters_initialized () {
-    core.conv.register_custom_parser(parse_binary);
+    core.conv.register_custom_parser(parse_binary)
 }
 
 #local
 parse_binary :: (b: &Binary, s: str, a: Allocator) -> bool {
-    if s[0..2] != "\\x" do return false;
+    if s[0..2] != "\\x" do return false
 
-    to_decode := s[2 .. s.length];
-    if to_decode.length % 2 != 0 do return false;
+    to_decode := s[2 .. s.length]
+    if to_decode.length % 2 != 0 do return false
 
-    result := make([] u8, to_decode.length / 2, a);
+    result := make([] u8, to_decode.length / 2, a)
 
     for i in result.length {
         result[i] = ~~(
             (decode(to_decode[i * 2 + 0]) << 4) |
             (decode(to_decode[i * 2 + 1]))
-        );
+        )
     }
 
-    *b = Binary.{ result };
-    return true;
+    *b = Binary.{ result }
+    return true
 
     decode :: (c: u8) => switch c {
-        case '0' .. '9' => cast(i32) (c - '0');
-        case 'A' .. 'F' => cast(i32) (c - 'A' + 10);
-        case 'a' .. 'f' => cast(i32) (c - 'a' + 10);
-        case #default   => 0;
+        case '0' .. '9' => cast(i32) (c - '0')
+        case 'A' .. 'F' => cast(i32) (c - 'A' + 10)
+        case 'a' .. 'f' => cast(i32) (c - 'a' + 10)
+        case #default   => 0
     }
 }
 
 
 #local
-registered_types: Map(type_expr, str);
+registered_types: Map(type_expr, str)
 
 register_type :: (type: type_expr, pg_type: str) {
-    registered_types[type] = pg_type;
+    registered_types[type] = pg_type
 }
 
 #package
 onyx_type_to_postgres_type :: (type_: type_expr) -> str {
-    type := type_;
+    type := type_
     if union_constructed_from(type, Optional) {
-        type = type->info()->as_union().variants[1].type;
+        type = type->info()->as_union().variants[1].type
     }
 
     switch type {
-        case bool     do return "bool";
-        case i8, u8   do return "character";
-        case i16, u16 do return "smallint";
-        case i32, u32 do return "integer";
-        case i64, u64 do return "bigint";
-        case f32      do return "real";
-        case f64      do return "double precision";
+        case bool     do return "bool"
+        case i8, u8   do return "character"
+        case i16, u16 do return "smallint"
+        case i32, u32 do return "integer"
+        case i64, u64 do return "bigint"
+        case f32      do return "real"
+        case f64      do return "double precision"
 
-        case str      do return "text";
+        case str      do return "text"
 
-        case core.encoding.json.Value do return "json";
+        case core.encoding.json.Value do return "json"
 
         #if #defined(core.time.Date) {
-            case core.time.Date do return "Date";
+            case core.time.Date do return "Date"
         }
 
         #if #defined(core.time.Timestamp) {
-            case core.time.Timestamp do return "Timestamp";
+            case core.time.Timestamp do return "Timestamp"
         }
 
-        case Binary do return "bytea";
+        case Binary do return "bytea"
 
         case #default {
-            info := get_type_info(type);
+            info := get_type_info(type)
             switch info.kind {
                 case .Enum {
-                    e := cast(^Type_Info_Enum) info;
-                    return onyx_type_to_postgres_type(e.backing_type);
+                    e := cast(&Type_Info_Enum) info
+                    return onyx_type_to_postgres_type(e.backing_type)
                 }
             }
         }
     }
 
-    return registered_types[type] ?? "";
+    return registered_types[type] ?? ""
 }

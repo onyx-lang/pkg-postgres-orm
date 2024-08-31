@@ -1,9 +1,9 @@
 package postgres.orm
 
 model :: struct {
-    table_name: str;
+    table_name: str
 
-    schema_name := "public";
+    schema_name := "public"
 }
 
 primary_key    :: #distinct void
@@ -13,59 +13,59 @@ nullable       :: #distinct void
 auto_increment :: #distinct void
 
 constraint  :: struct {
-    name: str;
-    cond: str;
+    name: str
+    cond: str
 }
 default     :: struct {
-    expr: str;
+    expr: str
 }
 joint_unique :: struct {
-    cols: [] str;
+    cols: [] str
 }
 foreign_key :: struct {
-    model: type_expr;
-    key: str = "";
+    model: type_expr
+    key: str = ""
 
-    on_delete := ReferentialAction.No_Action;
-    on_update := ReferentialAction.No_Action;
+    on_delete := ReferentialAction.No_Action
+    on_update := ReferentialAction.No_Action
 }
 
 has_one :: struct {
-    foreign_key: str;
-    local_key:   str = "";
+    foreign_key: str
+    local_key:   str = ""
 }
 
 has_many :: struct {
-    foreign_key: str;
-    local_key:   str = "";
+    foreign_key: str
+    local_key:   str = ""
 }
 
 belongs_to :: struct {
-    local_key:   str;
-    foreign_key: str = "";
+    local_key:   str
+    foreign_key: str = ""
 }
 
 many_to_many :: struct {
-    mapping_model: type_expr;
-    lookup_key:    str;
-    result_key:    str;
+    mapping_model: type_expr
+    lookup_key:    str
+    result_key:    str
 }
 
 section :: struct {
-    type: type_expr;
+    type: type_expr
 }
 
 end_section :: #distinct void
 
 column_name :: struct {
-    name: str;
+    name: str
 }
 
 #local
 ReferentialAction :: enum {
-    No_Action;
-    Restrict;
-    Cascade;
-    Set_Null;
-    Set_Default;
+    No_Action
+    Restrict
+    Cascade
+    Set_Null
+    Set_Default
 }

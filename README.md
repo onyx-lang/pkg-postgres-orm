@@ -142,7 +142,7 @@ table name. By default the schema name is `"public"`.
 Inside of the structure, you can simply declare members, and they will be
 mapped to columns with *almost* the same name in the database's table. The
 only different between the member names and the columns names is that column
-names are always all lowercase. The ORM simply does `string.to_lowercase` on
+names are always all lowercase. The ORM simply does `str.to_lowercase` on
 all member names before using them. Note that members that are pointers or
 slices of pointers are skipped, as those are used for relationships.
 

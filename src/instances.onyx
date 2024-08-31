@@ -5,61 +5,61 @@ use core {package, *}
 
 #package
 ORMInstanceKey :: struct {
-    model: type_expr;
-    value: str;
+    model: type_expr
+    value: str
 }
 
 #overload
 core.hash.to_u32 :: (key: ORMInstanceKey) => {
-    value_hash := core.hash.to_u32(key.value);
-    model_hash := core.hash.to_u32(key.model);
+    value_hash := core.hash.to_u32(key.value)
+    model_hash := core.hash.to_u32(key.model)
 
-    return value_hash ^ model_hash;
+    return value_hash & model_hash
 }
 
 #operator == (k1, k2: ORMInstanceKey) => {
-    if k1.model != k2.model do return false;
-    return k1.value == k2.value;
+    if k1.model != k2.model do return false
+    return k1.value == k2.value
 }
 
 #package
-lookup_or_create_instances :: (ctx: ^ORMContext, type: type_expr, res: ^postgres.Result) -> [..] rawptr {
+lookup_or_create_instances :: (ctx: &ORMContext, type: type_expr, res: &postgres.Result) -> [..] rawptr {
     // Ensure the type is a known model type.
-    if !(ctx.models->has(type)) do return .{};
-    defer res->clear();
+    if !(ctx.models->has(type)) do return .{}
+    defer res->clear()
 
-    model := ^ctx.models[type];
+    model := &ctx.models[type]
 
-    // This is technically a [..] ^type, but I am avoiding
+    // This is technically a [..] &type, but I am avoiding
     // making this a polymorphic procedure, because the body
     // would be the exact same for every polymorphic version.
-    result := make([..] rawptr, ctx.allocator);
+    result := make([..] rawptr, ctx.allocator)
 
     // Have to add one to model.primary_col here because col_nums
     // is 1-indexed and model column numbers are 0-indexed.
-    primary_idx := array.find(res.col_nums, model.primary_col + 1);
-    if primary_idx == -1 do return result;
+    primary_idx := Array.find(res.col_nums, model.primary_col + 1)
+    if primary_idx == -1 do return result
 
-    primary_col := ^model.cols[primary_idx];
+    primary_col := &model.cols[primary_idx]
 
-    state := ctx->get_state();
-    instance_allocator := state->instance_allocator();
+    state := ctx->get_state()
+    instance_allocator := state->instance_allocator()
 
     for row in res.rows {
-        primary_key := res->get_value(row, primary_idx);
-        id          := ORMInstanceKey.{type, primary_key};
+        primary_key := res->get_value(row, primary_idx)
+        id          := ORMInstanceKey.{type, primary_key}
 
-        instance_pointer := state.instances[id] ?? null;
+        instance_pointer := state.instances[id] ?? null
         if instance_pointer == null {
-            id.value         = string.alloc_copy(primary_key, instance_allocator);
+            id.value         = str.copy(primary_key, instance_allocator)
 
-            instance_pointer = new(type, instance_allocator);
-            state.instances[id] = instance_pointer;
+            instance_pointer = new(type, instance_allocator)
+            state.instances[id] = instance_pointer
         }
 
-        postgres.result_to_struct(res, row, type, ~~ instance_pointer, instance_allocator);
-        result << instance_pointer;
+        postgres.result_to_struct(res, row, type, ~~ instance_pointer, instance_allocator)
+        result << instance_pointer
     }
 
-    return result;
+    return result
 }

@@ -3,272 +3,260 @@ package postgres.orm
 use core {package, *}
 
 QueryBuilder :: struct {
-    allocator: Allocator;
+    allocator: Allocator
 
-    ormctx : ^ORMContext;
-    model  : ^ORMModel;
-    table_type : type_expr;
+    ormctx : &ORMContext
+    model  : &ORMModel
+    table_type : type_expr
 
     // The strings in these filters are allocated with
     // the allocated above. They should always be freed
     // after the query is done.
-    selection: str;
-    selection_name: str;
-    joins:      [..] struct {kind: JoinKind; model: &ORMModel; name: str; cond: str};
-    filters:    [..] str;
-    havings:    [..] str;
-    ordering:   [..] struct {field: str; ordering: QueryOrdering};
-    grouping:   [..] str;
-    inclusions: [..] str;
-    params:     [..] any;
+    selection: str
+    selection_name: str
+    joins:      [..] struct {kind: JoinKind; model: &ORMModel; name: str; cond: str}
+    filters:    [..] str
+    havings:    [..] str
+    ordering:   [..] struct {field: str; ordering: QueryOrdering}
+    grouping:   [..] str
+    inclusions: [..] str
+    params:     [..] any
 
-    query_limit := 0;
-    query_offset := 0;
+    query_limit := 0
+    query_offset := 0
 
-    next_param_num := 1;
+    next_param_num := 1
 
-    valid := false;
+    valid := false
 }
 
-#inject
-QueryBuilder.init :: (qb: ^QueryBuilder, type: type_expr, ctx: ^ORMContext, from_name := "") {
-    qb.allocator = ctx.allocator;
-    qb.ormctx = ctx;
-    qb.table_type = type;
-    qb.selection_name = from_name;
+QueryBuilder.init :: (qb: &QueryBuilder, type: type_expr, ctx: &ORMContext, from_name := "") {
+    qb.allocator = ctx.allocator
+    qb.ormctx = ctx
+    qb.table_type = type
+    qb.selection_name = from_name
 
-    qb.model = ^ctx.models[qb.table_type];
-    if qb.model == null do return;
+    qb.model = &ctx.models[qb.table_type]
+    if qb.model == null do return
 
-    qb.valid = true;
+    qb.valid = true
 
-    qb.next_param_num = 1;
+    qb.next_param_num = 1
 
-    array.init(^qb.joins,  allocator=qb.allocator);
-    array.init(^qb.filters,  allocator=qb.allocator);
-    array.init(^qb.havings,  allocator=qb.allocator);
-    array.init(^qb.ordering, allocator=qb.allocator);
-    array.init(^qb.grouping, allocator=qb.allocator);
-    array.init(^qb.inclusions, allocator=qb.allocator);
-    array.init(^qb.params, allocator=qb.allocator);
+    Array.init(&qb.joins,  allocator=qb.allocator)
+    Array.init(&qb.filters,  allocator=qb.allocator)
+    Array.init(&qb.havings,  allocator=qb.allocator)
+    Array.init(&qb.ordering, allocator=qb.allocator)
+    Array.init(&qb.grouping, allocator=qb.allocator)
+    Array.init(&qb.inclusions, allocator=qb.allocator)
+    Array.init(&qb.params, allocator=qb.allocator)
 }
 
-#inject
-QueryBuilder.free :: (qb: ^QueryBuilder) {
+QueryBuilder.free :: (qb: &QueryBuilder) {
     for qb.filters {
-        raw_free(qb.allocator, it.data);
+        raw_free(qb.allocator, it.data)
     }
 
     for qb.havings {
-        raw_free(qb.allocator, it.data);
+        raw_free(qb.allocator, it.data)
     }
 
     for qb.grouping {
-        raw_free(qb.allocator, it.data);
+        raw_free(qb.allocator, it.data)
     }
 
     for qb.params {
-        raw_free(qb.allocator, it.data);
+        raw_free(qb.allocator, it.data)
     }
 
-    delete(^qb.filters);
-    delete(^qb.havings);
-    delete(^qb.ordering);
-    delete(^qb.grouping);
-    delete(^qb.params);
-    delete(^qb.inclusions);
+    delete(&qb.filters)
+    delete(&qb.havings)
+    delete(&qb.ordering)
+    delete(&qb.grouping)
+    delete(&qb.params)
+    delete(&qb.inclusions)
 
-    if !string.empty(qb.selection) {
-        delete(^qb.selection);
+    if !str.empty(qb.selection) {
+        delete(&qb.selection)
     }
 }
 
 
-#inject
-QueryBuilder.select :: (qb: ^QueryBuilder, selection: str) => {
-    qb.selection = string.alloc_copy(selection, qb.allocator);
-    return qb;
+QueryBuilder.select :: (qb: &QueryBuilder, selection: str) => {
+    qb.selection = str.copy(selection, qb.allocator)
+    return qb
 }
 
 
 JoinKind :: enum {
-    Inner;
-    Left;
-    Right;
-    Full;
+    Inner
+    Left
+    Right
+    Full
 }
 
-#inject
 QueryBuilder.join :: #match #local {}
 
 #overload
 QueryBuilder.join :: (qb: &QueryBuilder, join_kind: JoinKind, table: type_expr, name: str, cond: str, values: [] any) => {
-    model := &qb.ormctx.models[table];
-    if model == null do return qb;
+    model := &qb.ormctx.models[table]
+    if model == null do return qb
 
     qb.joins << .{
         join_kind,
         model,
-        string.alloc_copy(name, qb.allocator),
+        str.copy(name, qb.allocator),
         process_format_str(qb, cond)
-    };
+    }
 
-    copy_anys(qb, values, &qb.params);
+    copy_anys(qb, values, &qb.params)
 
-    return qb;
+    return qb
 }
 
 #overload
 QueryBuilder.join :: (qb: &QueryBuilder, join_kind: JoinKind, table: type_expr, name: str, cond: str, values: ..any) => {
-    return qb->join(join_kind, table, name, cond, cast([] any) values);
+    return qb->join(join_kind, table, name, cond, cast([] any) values)
 }
 
 
-#inject
 QueryBuilder.filter :: #match #local {}
 
 #overload
-QueryBuilder.filter :: (qb: ^QueryBuilder, filter: str) => {
-    qb.filters << string.alloc_copy(filter, qb.allocator);
+QueryBuilder.filter :: (qb: &QueryBuilder, filter: str) => {
+    qb.filters << str.copy(filter, qb.allocator)
 
-    return qb;
+    return qb
 }
 
 #overload
-QueryBuilder.filter :: (qb: ^QueryBuilder, filter_format: str, values: [] any) => {
-    processed_filter := process_format_str(qb, filter_format);
-    copy_anys(qb, values, &qb.params);
+QueryBuilder.filter :: (qb: &QueryBuilder, filter_format: str, values: [] any) => {
+    processed_filter := process_format_str(qb, filter_format)
+    copy_anys(qb, values, &qb.params)
 
-    qb.filters << processed_filter;
-    return qb;
+    qb.filters << processed_filter
+    return qb
 }
 
 #overload
-QueryBuilder.filter :: (qb: ^QueryBuilder, filter_format: str, va: ..any) => {
-    values := cast([] any) va;
-    return qb->filter(filter_format, values);
+QueryBuilder.filter :: (qb: &QueryBuilder, filter_format: str, va: ..any) => {
+    values := cast([] any) va
+    return qb->filter(filter_format, values)
 }
 
 
-#inject
 QueryBuilder.having :: #match #local {}
 
 #overload
-QueryBuilder.having :: (qb: ^QueryBuilder, having: str) => {
-    qb.havings << string.alloc_copy(having, qb.allocator);
+QueryBuilder.having :: (qb: &QueryBuilder, having: str) => {
+    qb.havings << str.copy(having, qb.allocator)
 
-    return qb;
+    return qb
 }
 
 #overload
-QueryBuilder.having :: (qb: ^QueryBuilder, having_format: str, values: [] any) => {
-    having := process_format_str(qb, having_format);
-    copy_anys(qb, values, &qb.params);
+QueryBuilder.having :: (qb: &QueryBuilder, having_format: str, values: [] any) => {
+    having := process_format_str(qb, having_format)
+    copy_anys(qb, values, &qb.params)
 
-    qb.havings << having;
-    return qb;
+    qb.havings << having
+    return qb
 }
 
 #overload
-QueryBuilder.having :: (qb: ^QueryBuilder, having_format: str, va: ..any) => {
-    values := cast([] any) va;
-    return qb->having(having_format, values);
+QueryBuilder.having :: (qb: &QueryBuilder, having_format: str, va: ..any) => {
+    values := cast([] any) va
+    return qb->having(having_format, values)
 }
 
 
 QueryOrdering :: enum {
-    ASC  :: 0;
-    DESC :: 1;
+    ASC  :: 0
+    DESC :: 1
 
-    Ascend :: 0;
-    Descend :: 1;
+    Ascend :: 0
+    Descend :: 1
 }
 
-#inject
 QueryBuilder.order :: #match #local {}
 
 #overload
-QueryBuilder.order :: (qb: ^QueryBuilder, field: str, ord: QueryOrdering) => {
-    qb.ordering << .{ field, ord };
-    return qb;
+QueryBuilder.order :: (qb: &QueryBuilder, field: str, ord: QueryOrdering) => {
+    qb.ordering << .{ field, ord }
+    return qb
 }
 
 
 
-#inject
 QueryBuilder.group :: #match #local {}
 
 #overload
-QueryBuilder.group :: (qb: ^QueryBuilder, group: str) => {
-    qb.grouping << string.alloc_copy(group, qb.allocator);
-    return qb;
+QueryBuilder.group :: (qb: &QueryBuilder, group: str) => {
+    qb.grouping << str.copy(group, qb.allocator)
+    return qb
 }
 
 #overload
-QueryBuilder.group :: (qb: ^QueryBuilder, group_format: str, values: [] any) => {
-    group := process_format_str(qb, group_format);
-    copy_anys(qb, values, &qb.params);
+QueryBuilder.group :: (qb: &QueryBuilder, group_format: str, values: [] any) => {
+    group := process_format_str(qb, group_format)
+    copy_anys(qb, values, &qb.params)
 
-    qb.grouping << group;
-    return qb;
+    qb.grouping << group
+    return qb
 }
 
 #overload
-QueryBuilder.group :: (qb: ^QueryBuilder, group_format: str, va: ..any) => {
-    values := cast([] any) va;
-    return qb->group(group_format, values);
+QueryBuilder.group :: (qb: &QueryBuilder, group_format: str, va: ..any) => {
+    values := cast([] any) va
+    return qb->group(group_format, values)
 }
 
 
-#inject
 QueryBuilder.include :: #match #local {}
 
 #overload
 QueryBuilder.include :: (qb: &QueryBuilder, inclusions: [] str) => {
-    array.concat(&qb.inclusions, inclusions);
-    return qb;
+    Array.concat(&qb.inclusions, inclusions)
+    return qb
 }
 
 #overload
 QueryBuilder.include :: (qb: &QueryBuilder, inclusions: ..str) => {
-    qb->include(cast([] str) inclusions);
-    return qb;
+    qb->include(cast([] str) inclusions)
+    return qb
 }
 
 
 
-#inject
-QueryBuilder.limit :: (qb: ^QueryBuilder, limit: u32) => {
-    qb.query_limit = limit;
-    return qb;
+QueryBuilder.limit :: (qb: &QueryBuilder, limit: u32) => {
+    qb.query_limit = limit
+    return qb
 }
 
 
-#inject
-QueryBuilder.offset :: (qb: ^QueryBuilder, offset: u32) => {
-    qb.query_offset = offset;
-    return qb;
+QueryBuilder.offset :: (qb: &QueryBuilder, offset: u32) => {
+    qb.query_offset = offset
+    return qb
 }
 
 
-#inject
-QueryBuilder.all :: (qb: ^QueryBuilder, alternate_return_type := void) -> [] rawptr {
-    if !qb.valid do return .[];
+QueryBuilder.all :: (qb: &QueryBuilder, alternate_return_type := void) -> [] rawptr {
+    if !qb.valid do return .[]
 
-    query := build_select_query_string(qb);
-    res := qb.ormctx->exec_params_log(query, qb.params)?;
-    defer qb->free();
+    query := build_select_query_string(qb)
+    res := qb.ormctx->exec_params_log(query, qb.params)?
+    defer qb->free()
 
     if res->status() != .Tuples_Ok {
-        return .[];
+        return .[]
     }
 
-    output: [] rawptr;
+    output: [] rawptr
 
     if alternate_return_type == void && qb.model.primary_col >= 0 {
-        instances := lookup_or_create_instances(qb.ormctx, qb.table_type, ^res);
-        defer delete(^instances);
-        output = ~~ array.copy(instances, context.temp_allocator);
+        instances := lookup_or_create_instances(qb.ormctx, qb.table_type, &res)
+        defer delete(&instances)
+        output = ~~ Array.copy(instances, context.temp_allocator)
 
     } else {
         //
@@ -277,318 +265,313 @@ QueryBuilder.all :: (qb: ^QueryBuilder, alternate_return_type := void) -> [] raw
         // they just cannot be tracked and updated using
         // the internal instance map.
         if alternate_return_type == void {
-            alternate_return_type = qb.table_type;
+            alternate_return_type = qb.table_type
         }
 
-        results := make([] rawptr, res.rows, context.temp_allocator);
+        results := make([] rawptr, res.rows, context.temp_allocator)
 
-        state := qb.ormctx->get_state();
-        instance_allocator := state->instance_allocator();
+        state := qb.ormctx->get_state()
+        instance_allocator := state->instance_allocator()
 
         for res.rows {
-            instance_pointer := new(alternate_return_type, instance_allocator);
-            postgres.result_to_struct(^res, it, alternate_return_type, ~~ instance_pointer, instance_allocator);
-            results[it] = instance_pointer;
+            instance_pointer := new(alternate_return_type, instance_allocator)
+            postgres.result_to_struct(&res, it, alternate_return_type, ~~ instance_pointer, instance_allocator)
+            results[it] = instance_pointer
         }
 
-        output = results;
+        output = results
     }
 
     if qb.inclusions && alternate_return_type == void {
-        process_bulk_inclusions(qb, output, qb.table_type, qb.inclusions);
+        process_bulk_inclusions(qb, output, qb.table_type, qb.inclusions)
     }
 
-    return output;
+    return output
 }
 
-#inject
-QueryBuilder.first :: (qb: ^QueryBuilder, alternate_return_type := void) -> rawptr {
-    if !qb.valid do return .{};
+QueryBuilder.first :: (qb: &QueryBuilder, alternate_return_type := void) -> rawptr {
+    if !qb.valid do return .{}
 
-    qb.query_limit = 1;
-    query := build_select_query_string(qb);
+    qb.query_limit = 1
+    query := build_select_query_string(qb)
 
-    res := qb.ormctx->exec_params_log(query, qb.params)?;
-    defer qb->free();
+    res := qb.ormctx->exec_params_log(query, qb.params)?
+    defer qb->free()
 
     if res->status() != .Tuples_Ok {
-        return null;
+        return null
     }
 
-    output: rawptr;
+    output: rawptr
 
     if alternate_return_type == void && qb.model.primary_col >= 0 {
-        instances := lookup_or_create_instances(qb.ormctx, qb.table_type, ^res);
-        defer delete(^instances);
+        instances := lookup_or_create_instances(qb.ormctx, qb.table_type, &res)
+        defer delete(&instances)
 
-        if instances.count == 0 do return null;
-        output = ~~ instances.data[0];
+        if instances.count == 0 do return null
+        output = ~~ instances.data[0]
 
     } else {
         //
         // See comment above.
         if alternate_return_type == void {
-            alternate_return_type = qb.table_type;
+            alternate_return_type = qb.table_type
         }
 
-        state := qb.ormctx->get_state();
-        instance_allocator := state->instance_allocator();
+        state := qb.ormctx->get_state()
+        instance_allocator := state->instance_allocator()
 
-        instance_pointer := new(alternate_return_type, instance_allocator);
-        postgres.result_to_struct(^res, 0, alternate_return_type, ~~ instance_pointer, instance_allocator);
-        output = ~~ instance_pointer;
+        instance_pointer := new(alternate_return_type, instance_allocator)
+        postgres.result_to_struct(&res, 0, alternate_return_type, ~~ instance_pointer, instance_allocator)
+        output = ~~ instance_pointer
     }
 
     if qb.inclusions && alternate_return_type == void {
-        process_inclusions(qb, output, qb.table_type, qb.inclusions);
+        process_inclusions(qb, output, qb.table_type, qb.inclusions)
     }
 
-    return output;
+    return output
 }
 
-#inject
-QueryBuilder.find :: (qb: ^QueryBuilder, key: any) -> rawptr {
-    if !qb.valid do return .{};
+QueryBuilder.find :: (qb: &QueryBuilder, key: any) -> rawptr {
+    if !qb.valid do return .{}
 
     if qb.model.primary_col == -1 {
-        logf(.Error, "Cannot use find() on a model that does not have a primary key.");
-        return null;
+        logf(.Error, "Cannot use find() on a model that does not have a primary key.")
+        return null
     }
 
-    primary_key := ^qb.model.cols[qb.model.primary_col];
+    primary_key := &qb.model.cols[qb.model.primary_col]
 
-    qb->filter(tprintf("{\"}=%", primary_key.name), .[ key ]);
-    qb.query_limit = 1;
+    qb->filter(tprintf("{\"}=%", primary_key.name), .[ key ])
+    qb.query_limit = 1
 
-    return qb->first();
+    return qb->first()
 }
 
 
-#inject
-QueryBuilder.delete :: (qb: ^QueryBuilder) -> i32 {
-    if !qb.valid do return -1;
+QueryBuilder.delete :: (qb: &QueryBuilder) -> i32 {
+    if !qb.valid do return -1
 
-    query := build_delete_query_string(qb);
-    res := qb.ormctx->exec_params_log(query, qb.params)->or_return(0);
+    query := build_delete_query_string(qb)
+    res := qb.ormctx->exec_params_log(query, qb.params)->or_return(0)
 
     defer {
-        qb->free();
-        res->clear();
+        qb->free()
+        res->clear()
     }
 
     if status := res->status(); status != .Tuples_Ok {
-        if status == .Command_Ok do return 1;
+        if status == .Command_Ok do return 1
 
-        return -1;
+        return -1
     }
 
-    return res.rows;
+    return res.rows
 }
 
-#inject
 QueryBuilder.update :: #match #local {}
 
 #overload
-QueryBuilder.update :: (qb: ^QueryBuilder, field: str, value: any) -> i32 {
-    return qb->update(.[.{field, value}]);
+QueryBuilder.update :: (qb: &QueryBuilder, field: str, value: any) -> i32 {
+    return qb->update(.[.{field, value}])
 }
 
 
 ColumnUpdate :: struct {name: str; value: any;}
 
 #overload
-QueryBuilder.update :: (qb: ^QueryBuilder, updates: [] ColumnUpdate) -> i32 {
-    if !qb.valid do return -1;
+QueryBuilder.update :: (qb: &QueryBuilder, updates: [] ColumnUpdate) -> i32 {
+    if !qb.valid do return -1
 
-    query := build_update_query_string(qb, updates);
-    res := qb.ormctx->exec_params_log(query, qb.params)->or_return(0);
+    query := build_update_query_string(qb, updates)
+    res := qb.ormctx->exec_params_log(query, qb.params)->or_return(0)
 
     defer {
-        qb->free();
-        res->clear();
+        qb->free()
+        res->clear()
     }
 
     if status := res->status(); status != .Tuples_Ok {
-        if status == .Command_Ok do return 1;
+        if status == .Command_Ok do return 1
         
-        return -1;
+        return -1
     }
 
-    return res.rows;
+    return res.rows
 }
 
-#inject
-QueryBuilder.count :: (qb: ^QueryBuilder) -> i32 {
-    if !qb.valid do return -1;
+QueryBuilder.count :: (qb: &QueryBuilder) -> i32 {
+    if !qb.valid do return -1
 
-    qb->select("count(*) as count");
+    qb->select("count(*) as count")
 
     Count :: struct {
-        count: i32;
+        count: i32
     }
 
-    count: &Count = qb->first(Count);
+    count: &Count = qb->first(Count)
 
-    return count.count;
+    return count.count
 }
 
 
 #package
-build_select_query_string :: (qb: ^QueryBuilder) -> str {
-    select_writer, select_command := io.string_builder();
-    defer delete(select_command);
+build_select_query_string :: (qb: &QueryBuilder) -> str {
+    select_writer, select_command := io.string_builder()
+    defer delete(select_command)
 
     selection := do {
-        if string.empty(qb.selection) do return "*";
-        return qb.selection;
-    };
+        if str.empty(qb.selection) do return "*"
+        return qb.selection
+    }
 
-    io.write(^select_writer, "SELECT {} FROM \"{}\".\"{}\" {}", selection, qb.model.schema_name, qb.model.table_name, qb.selection_name);
+    io.write(&select_writer, "SELECT {} FROM \"{}\".\"{}\" {}", selection, qb.model.schema_name, qb.model.table_name, qb.selection_name)
 
     for& qb.joins {
         switch it.kind {
-            case .Inner do io.write(&select_writer, " INNER JOIN ");
-            case .Left  do io.write(&select_writer, " LEFT JOIN ");
-            case .Right do io.write(&select_writer, " RIGHT JOIN ");
-            case .Full  do io.write(&select_writer, " FULL JOIN ");
+            case .Inner do io.write(&select_writer, " INNER JOIN ")
+            case .Left  do io.write(&select_writer, " LEFT JOIN ")
+            case .Right do io.write(&select_writer, " RIGHT JOIN ")
+            case .Full  do io.write(&select_writer, " FULL JOIN ")
         }
 
-        io.write(&select_writer, "{\"}.{\"} {\"} ON {}", it.model.schema_name, it.model.table_name, it.name, it.cond);
+        io.write(&select_writer, "{\"}.{\"} {\"} ON {}", it.model.schema_name, it.model.table_name, it.name, it.cond)
     }
 
     if qb.filters.length > 0 {
-        io.write(^select_writer, " WHERE ");
+        io.write(&select_writer, " WHERE ")
 
-        for^ qb.filters {
-            if !#first do io.write(^select_writer, " AND ");
+        for& qb.filters {
+            if !#first do io.write(&select_writer, " AND ")
 
-            io.write(^select_writer, "(");
-            io.write(^select_writer, *it);
-            io.write(^select_writer, ")");
+            io.write(&select_writer, "(")
+            io.write(&select_writer, *it)
+            io.write(&select_writer, ")")
         }
     }
 
     if qb.grouping.length > 0 {
-        io.write(^select_writer, " GROUP BY ");
+        io.write(&select_writer, " GROUP BY ")
 
-        for^ qb.grouping {
-            if !#first do io.write(^select_writer, ", ");
+        for& qb.grouping {
+            if !#first do io.write(&select_writer, ", ")
 
-            io.write(^select_writer, *it);
+            io.write(&select_writer, *it)
         }
     }
 
     if qb.havings.length > 0 {
-        io.write(^select_writer, " HAVING ");
+        io.write(&select_writer, " HAVING ")
 
-        for^ qb.havings {
-            if !#first do io.write(^select_writer, " AND ");
+        for& qb.havings {
+            if !#first do io.write(&select_writer, " AND ")
 
-            io.write(^select_writer, "(");
-            io.write(^select_writer, *it);
-            io.write(^select_writer, ")");
+            io.write(&select_writer, "(")
+            io.write(&select_writer, *it)
+            io.write(&select_writer, ")")
         }
     }
 
     if qb.ordering.length > 0 {
-        io.write(^select_writer, " ORDER BY ");
+        io.write(&select_writer, " ORDER BY ")
 
-        for^ qb.ordering {
-            if !#first do io.write(^select_writer, ", ");
+        for& qb.ordering {
+            if !#first do io.write(&select_writer, ", ")
 
-            io.write(^select_writer, "{\"} {}", it.field, it.ordering);
+            io.write(&select_writer, "{\"} {}", it.field, it.ordering)
         }
     }
 
     if qb.query_limit > 0 {
-        io.write(^select_writer, " LIMIT {}", qb.query_limit);
+        io.write(&select_writer, " LIMIT {}", qb.query_limit)
     }
 
     if qb.query_offset > 0 {
-        io.write(^select_writer, " OFFSET {}", qb.query_offset);
+        io.write(&select_writer, " OFFSET {}", qb.query_offset)
     }
 
-    return string.temp_copy(string.as_str(select_command));
+    return str.temp_copy(str.as_str(select_command))
 }
 
 #package
-build_delete_query_string :: (qb: ^QueryBuilder) -> str {
-    delete_writer, delete_command := io.string_builder();
-    defer delete(delete_command);
+build_delete_query_string :: (qb: &QueryBuilder) -> str {
+    delete_writer, delete_command := io.string_builder()
+    defer delete(delete_command)
 
-    io.write(^delete_writer, "DELETE FROM \"{}\".\"{}\"", qb.model.schema_name, qb.model.table_name);
+    io.write(&delete_writer, "DELETE FROM \"{}\".\"{}\"", qb.model.schema_name, qb.model.table_name)
 
     if qb.filters.length > 0 {
-        io.write(^delete_writer, " WHERE ");
+        io.write(&delete_writer, " WHERE ")
 
-        for^ qb.filters {
-            if !#first do io.write(^delete_writer, " AND ");
+        for& qb.filters {
+            if !#first do io.write(&delete_writer, " AND ")
 
-            io.write(^delete_writer, "(");
-            io.write(^delete_writer, *it);
-            io.write(^delete_writer, ")");
+            io.write(&delete_writer, "(")
+            io.write(&delete_writer, *it)
+            io.write(&delete_writer, ")")
         }
     }
 
     if qb.model.primary_col >= 0 {
-        io.write(^delete_writer, " RETURNING \"{}\"",
-            qb.model.cols[qb.model.primary_col].name);
+        io.write(&delete_writer, " RETURNING \"{}\"",
+            qb.model.cols[qb.model.primary_col].name)
     }
 
-    return string.temp_copy(string.as_str(delete_command));
+    return str.temp_copy(str.as_str(delete_command))
 }
 
 #package
-build_update_query_string :: (qb: ^QueryBuilder, updates: [] ColumnUpdate) -> str {
-    if updates.count == 0 do return "";
+build_update_query_string :: (qb: &QueryBuilder, updates: [] ColumnUpdate) -> str {
+    if updates.count == 0 do return ""
 
-    update_writer, update_command := io.string_builder();
-    defer delete(update_command);
+    update_writer, update_command := io.string_builder()
+    defer delete(update_command)
 
-    io.write(^update_writer, "UPDATE \"{}\".\"{}\" SET ", qb.model.schema_name, qb.model.table_name);
+    io.write(&update_writer, "UPDATE \"{}\".\"{}\" SET ", qb.model.schema_name, qb.model.table_name)
 
-    for^ updates {
-        if !#first do io.write(^update_writer, ", ");
+    for& updates {
+        if !#first do io.write(&update_writer, ", ")
 
-        io.write(^update_writer, "\"{}\"=${}", it.name, qb.next_param_num);
-        qb.next_param_num += 1;
+        io.write(&update_writer, "\"{}\"=${}", it.name, qb.next_param_num)
+        qb.next_param_num += 1
 
-        copy_anys(qb, .[it.value], &qb.params);
+        copy_anys(qb, .[it.value], &qb.params)
     }
 
     if qb.filters.length > 0 {
-        io.write(^update_writer, " WHERE ");
+        io.write(&update_writer, " WHERE ")
 
-        for^ qb.filters {
-            if !#first do io.write(^update_writer, " AND ");
+        for& qb.filters {
+            if !#first do io.write(&update_writer, " AND ")
 
-            io.write(^update_writer, "(");
-            io.write(^update_writer, *it);
-            io.write(^update_writer, ")");
+            io.write(&update_writer, "(")
+            io.write(&update_writer, *it)
+            io.write(&update_writer, ")")
         }
     }
 
     if qb.model.primary_col >= 0 {
-        io.write(^update_writer, " RETURNING \"{}\"",
-            qb.model.cols[qb.model.primary_col].name);
+        io.write(&update_writer, " RETURNING \"{}\"",
+            qb.model.cols[qb.model.primary_col].name)
     }
 
-    return string.temp_copy(string.as_str(update_command));
+    return str.temp_copy(str.as_str(update_command))
 }
 
 #package
-escape_any_args :: (qb: ^QueryBuilder, values: [] any) {
-    conn := qb.ormctx->get_conn()?;
+escape_any_args :: (qb: &QueryBuilder, values: [] any) {
+    conn := qb.ormctx->get_conn()?
 
-    for^ values {
+    for& values {
         if it.type == str {
-            s := *cast(^str) it.data;
+            s := *cast(&str) it.data
 
-            tmp := postgres.escape_str(conn, s, context.temp_allocator);
-            value := cast(^str) raw_alloc(context.temp_allocator, sizeof str);
-            *value = tmp;
+            tmp := postgres.escape_str(conn, s, context.temp_allocator)
+            value := cast(&str) raw_alloc(context.temp_allocator, sizeof str)
+            *value = tmp
 
-            *cast(^rawptr) ^it.data = value;
+            *cast(&rawptr) &it.data = value
         }
     }
 }
@@ -597,82 +580,80 @@ escape_any_args :: (qb: ^QueryBuilder, values: [] any) {
 #local
 process_bulk_inclusions :: (qb: &QueryBuilder, values: [] rawptr, type: type_expr, inclusions: [] str) {
     for inclusions {
-        qb.ormctx->load_related_many(values, type, it);
+        qb.ormctx->load_related_many(values, type, it)
     }
 }
 
 #local
 process_inclusions :: (qb: &QueryBuilder, value: rawptr, type: type_expr, inclusions: [] str) {
     for inclusions {
-        qb.ormctx->load_related(.{ value, type }, it);
+        qb.ormctx->load_related(.{ value, type }, it)
     }
 }
 
 
 
-#doc """
-    Converts all '%' to '$N' for use with PQexecParams.
-"""
+/// Converts all '%' to '$N' for use with PQexecParams.
 #local
 process_format_str :: (qb: &QueryBuilder, format: str) -> str {
-    output := make(dyn_str, qb.allocator);
+    output := make(dyn_str, qb.allocator)
 
     while it := 0; it < format.length {
-        defer it += 1;
+        defer it += 1
 
         if format[it] != '%' {
-            output << format[it];
-            continue;
+            output << format[it]
+            continue
         }
 
         if it < format.length - 1 {
             if format[it + 1] == '%' {
-                output << '%';
-                it += 1;
-                continue;
+                output << '%'
+                it += 1
+                continue
             }
         }
 
-        output << '$';
-        conv.format(&output, "{d}", qb.next_param_num);
-        qb.next_param_num += 1;
+        output << '$'
+        conv.format(&output, "{d}", qb.next_param_num)
+        qb.next_param_num += 1
     }
 
-    return output;
+    return output
 }
 
 #package
 escape_str_as_bytea :: (s: str) -> str {
-    output: dyn_str;
-    string.append(&output, "\\x");
+    output: dyn_str
+    dyn_str.append(&output, "\\x")
 
-    buf: [2] u8;
+    buf: [2] u8
     for s {
-        #persist hex_key := "0123456789ABCDEF";
+        #persist hex_key := "0123456789ABCDEF"
 
-        buf[0] = hex_key[(it & 0xF0) >> 4];
-        buf[1] = hex_key[(it & 0xF)];
+        buf[0] = hex_key[(it & 0xF0) >> 4]
+        buf[1] = hex_key[(it & 0xF)]
 
-        string.append(&output, buf);
+        dyn_str.append(&output, buf)
     }
 
-    return output;
+    return output
 }
 
 #local
 copy_anys :: (qb: &QueryBuilder, input: [] any, out: &[..] any) {
     for input {
-        size := it.type->info().size;
-        new_data := qb.allocator->alloc(size);
+        size := it.type->info().size
+        new_data := qb.allocator->alloc(size)
 
         if it.type == Binary {
             *cast(&Binary, new_data) = Binary.{
                 escape_str_as_bytea(cast(str) *cast(&Binary, it.data))
-            };
+            }
         } else {
-            memory.copy(new_data, it.data, size);
+            memory.copy(new_data, it.data, size)
         }
 
-        array.push(out, .{ new_data, it.type });
+        Array.push(out, .{ new_data, it.type })
     }
 }

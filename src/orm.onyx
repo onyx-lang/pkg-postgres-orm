@@ -20,448 +20,434 @@ use runtime.info {
 }
 
 
-#doc """
-    This structure contains all information about the ORM
-    that is being used in the program. There will likely only
-    ever be one instance of this structure, and it will be in
-    the global scope because it will be used everywhere.
-
-    Normally, you will not create this structure directly.
-    Instead, you will use postgres.orm.create() to provide
-    the connection details to the Postgres server. After
-    creating the context, you will likely want to call
-    auto_migrate() to populate the database with tables if
-    they do not exist.
-"""
+/// This structure contains all information about the ORM
+/// that is being used in the program. There will likely only
+/// ever be one instance of this structure, and it will be in
+/// the global scope because it will be used everywhere.
+///
+/// Normally, you will not create this structure directly.
+/// Instead, you will use postgres.orm.create() to provide
+/// the connection details to the Postgres server. After
+/// creating the context, you will likely want to call
+/// auto_migrate() to populate the database with tables if
+/// they do not exist.
 ORMContext :: struct {
-    allocator: Allocator;
+    allocator: Allocator
 
-    conn_maker: () -> postgres.Connection;
+    conn_maker: () -> postgres.Connection
 
     // All known models types and information
-    models: Map(type_expr, ORMModel);
+    models: Map(type_expr, ORMModel)
 
     // All active instances of models, per thread
-    thread_state: Map(u32, ORMState);
-    thread_state_mutex: sync.Mutex;
+    thread_state: Map(u32, ORMState)
+    thread_state_mutex: sync.Mutex
 
-    log_sql_statements := false;
+    log_sql_statements := false
 }
 
-#doc "Represents the state of the ORM, as seen per thread. This stores active instances of objects loaded from the database."
+/// Represents the state of the ORM, as seen per thread. This stores active instances of objects loaded from the database.
 ORMState :: struct {
     // Cached connection
-    _conn: ? postgres.Connection;
+    _conn: ? postgres.Connection
 
-    instances: Map(ORMInstanceKey, rawptr);
+    instances: Map(ORMInstanceKey, rawptr)
 
-    instance_arena: ArenaState;
+    instance_arena: ArenaState
 
-    instance_allocator :: (self) => alloc.as_allocator(&self.instance_arena);
+    instance_allocator :: (self) => alloc.as_allocator(&self.instance_arena)
 }
 
-#doc "Represents a model known by ORM."
+/// Represents a model known by ORM.
 ORMModel :: struct {
-    table_name: str;
-    schema_name: str;
+    table_name: str
+    schema_name: str
 
-    cols: [] ORMCol;
-    primary_col: i32;
+    cols: [] ORMCol
+    primary_col: i32
 
-    relationships: [] ORMRelation;
+    relationships: [] ORMRelation
 
-    type_info: ^runtime.info.Type_Info_Struct;
+    type_info: &runtime.info.Type_Info_Struct
 }
 
-#doc "Represents a single column of a model."
+/// Represents a single column of a model.
 ORMCol :: struct {
-    name: str;
-    type: str;
-    onyx_type: type_expr;
+    name: str
+    type: str
+    onyx_type: type_expr
     
-    onyx_default: rawptr;
-    default_expr: str;
+    onyx_default: rawptr
+    default_expr: str
 
-    primary_key: bool;
-    not_null: bool;
-    unique: bool;
+    primary_key: bool
+    not_null: bool
+    unique: bool
 
-    constraints: [] constraint;
+    constraints: [] constraint
 
-    foreign: ^foreign_key;
+    foreign: &foreign_key
     
-    member_info: ^runtime.info.Type_Info_Struct.Member;
+    member_info: &runtime.info.Type_Info_Struct.Member
 
-    has_default :: (use this: ^ORMCol) => onyx_default != null || !string.empty(default_expr);
+    has_default :: (use this: &ORMCol) => onyx_default != null || !str.empty(default_expr)
 }
 
-#doc "Represents a relation between models."
+/// Represents a relation between models.
 ORMRelation :: struct {
-    relation_type: type_expr;
-    relation_data: rawptr;
+    relation_type: type_expr
+    relation_data: rawptr
 
-    target_type: type_expr;
+    target_type: type_expr
 
-    member_info: ^runtime.info.Type_Info_Struct.Member;
+    member_info: &runtime.info.Type_Info_Struct.Member
 } 
 
 
-#doc "Creates a new ORMContext instance. This is the root object needed for all ORM related functionality."
+/// Creates a new ORMContext instance. This is the root object needed for all ORM related functionality.
 create :: (
     conn_maker: () -> postgres.Connection,
     allocator := context.allocator
-    ) -> ^ORMContext {
+    ) -> &ORMContext {
     
-    ctx := new(ORMContext, allocator=allocator);
-    ctx.allocator = allocator;
-    ctx.conn_maker = conn_maker;
-    ctx.models = make(typeof ctx.models, allocator);
-    ctx.thread_state = make(typeof ctx.thread_state, allocator);
-    sync.mutex_init(&ctx.thread_state_mutex);
+    ctx := new(ORMContext, allocator=allocator)
+    ctx.allocator = allocator
+    ctx.conn_maker = conn_maker
+    ctx.models = make(typeof ctx.models, allocator)
+    ctx.thread_state = make(typeof ctx.thread_state, allocator)
+    sync.mutex_init(&ctx.thread_state_mutex)
 
-    return ctx;
+    return ctx
 }
 
-#doc "Frees everything related to the ORM context. Use this when you are completely done using the context."
-close :: (ctx: ^ORMContext) {
-    for thread_state in iter.as_iter(ctx.thread_state) {
-        delete(&thread_state.value.instances);
-        arena_free(&thread_state.value.instance_arena);
+/// Frees everything related to the ORM context. Use this when you are completely done using the context.
+close :: (ctx: &ORMContext) {
+    for thread_state in Iterator.from(ctx.thread_state) {
+        delete(&thread_state.value.instances)
+        arena_free(&thread_state.value.instance_arena)
     }
 
-    for^ ctx.models.entries {
-        delete(^it.value.relationships, ctx.allocator);
+    for& ctx.models.entries {
+        delete(&it.value.relationships, ctx.allocator)
 
-        for^ col in it.value.cols {
-            delete(^col.constraints, ctx.allocator);
-            delete(^col.name, ctx.allocator);
+        for& col in it.value.cols {
+            delete(&col.constraints, ctx.allocator)
+            delete(&col.name, ctx.allocator)
         }
 
-        delete(^it.value.cols, ctx.allocator);
+        delete(&it.value.cols, ctx.allocator)
     }
 
-    delete(^ctx.models);
-    raw_free(ctx.allocator, ctx);
+    delete(&ctx.models)
+    raw_free(ctx.allocator, ctx)
 }
 
 
-#doc """
-    Returns the cached connection used by the ORM, or makes a new connection
-    using the connection maker provided at initialization.
-"""
-#inject
+/// Returns the cached connection used by the ORM, or makes a new connection
+/// using the connection maker provided at initialization.
 ORMContext.get_conn :: (ctx: &ORMContext) -> ? postgres.Connection {
-    state := ctx->get_state();
+    state := ctx->get_state()
 
     state._conn->with([conn] {
-        if conn->status() == .Ok do return conn;
+        if conn->status() == .Ok do return conn
 
         // Bad connection, close it and reopen
-        conn->finish();
-    });
+        conn->finish()
+    })
 
-    state._conn = ctx.conn_maker();
+    state._conn = ctx.conn_maker()
     state._conn->with([conn] {
         if conn->status() != .Ok {
-            logf(.Error, "Failed to connect to PostgresQL database.");
-            state._conn = .None;
+            logf(.Error, "Failed to connect to PostgresQL database.")
+            state._conn = .None
         }
-    });
+    })
 
-    return state._conn;
+    return state._conn
 }
 
-#inject
 ORMContext.get_state :: (ctx: &ORMContext) -> &ORMState {
-    state := ctx.thread_state->get_ptr(context.thread_id);
-    if state do return state;
+    state := ctx.thread_state->get_ptr(context.thread_id)
+    if state do return state
 
-    new_state: ORMState;
-    new_state._conn = .{};
-    new_state.instances = make(typeof new_state.instances, ctx.allocator);
+    new_state: ORMState
+    new_state._conn = .{}
+    new_state.instances = make(typeof new_state.instances, ctx.allocator)
     new_state.instance_arena = make_arena(ctx.allocator, 4 * 1024 * 1024); // @Cleanup
 
     sync.critical_section(&ctx.thread_state_mutex) {
-        ctx.thread_state->put(context.thread_id, new_state);
+        ctx.thread_state->put(context.thread_id, new_state)
     }
 
-    return ctx.thread_state->get_ptr(context.thread_id);
+    return ctx.thread_state->get_ptr(context.thread_id)
 }
 
 
-#doc """
-    Finds all models defined in the program and ensures that a table is created for each of them.
-    This should be called once at the beginning of the program.
-"""
-#inject
-ORMContext.auto_migrate :: (ctx: ^ORMContext) -> bool {
-    preload_user_defined_models(ctx);
-    prepare_models_in_database(ctx);
+/// Finds all models defined in the program and ensures that a table is created for each of them.
+/// This should be called once at the beginning of the program.
+ORMContext.auto_migrate :: (ctx: &ORMContext) -> bool {
+    preload_user_defined_models(ctx)
+    prepare_models_in_database(ctx)
 
-    return true;
+    return true
 }
 
-#doc """
-    Clears all active instances of objects, and therefore invalidates all their pointers.
-    Use this when you are done working with objects (e.g. at the end of an HTTP request)
-"""
-#inject
+/// Clears all active instances of objects, and therefore invalidates all their pointers.
+/// Use this when you are done working with objects (e.g. at the end of an HTTP request)
 ORMState.flush :: (state: &ORMState) {
-    state.instances->clear();
-    arena_clear(^state.instance_arena);
+    state.instances->clear()
+    arena_clear(&state.instance_arena)
 }
 
 
+/// This procedure looks through all type in the program and finds
+/// ones that have been marked as with orm.model. This function then loads
+/// information about the models it finds into a cache on the ORMContext
+/// for future use.
 #local
-#doc """
-    This procedure looks through all type in the program and finds
-    ones that have been marked as with orm.model. This function then loads
-    information about the models it finds into a cache on the ORMContext
-    for future use.
-"""
-preload_user_defined_models :: (ctx: ^ORMContext) {
+preload_user_defined_models :: (ctx: &ORMContext) {
     //
     // First: find and pre-cache all model definitions in the program.
     runtime.info.for_all_types() {
         if type_info.kind != .Struct {
-            continue;
+            continue
         }
 
-        struct_info := cast(^runtime.info.Type_Info_Struct) type_info;
-        tag := array.first(struct_info.tags, [](it.type == postgres.orm.model));
-        if tag == null do continue;
+        struct_info := cast(&runtime.info.Type_Info_Struct) type_info
+        tag := Array.first(struct_info.tags, [](it.type == postgres.orm.model))
+        if tag == null do continue
 
-        model_data := cast(^model) tag.data;
+        model_data := cast(&model) tag.data
 
-        model_valid := true;
+        model_valid := true
 
-        model: ORMModel;
-        model.table_name = model_data.table_name;
-        model.schema_name = model_data.schema_name;
-        model.type_info = struct_info;
-        model.primary_col = -1;
+        model: ORMModel
+        model.table_name = model_data.table_name
+        model.schema_name = model_data.schema_name
+        model.type_info = struct_info
+        model.primary_col = -1
 
-        cols      := make([..] ORMCol, struct_info.members.length, allocator=ctx.allocator);
-        relations := make([..] ORMRelation, 0, allocator=ctx.allocator);
+        cols      := make([..] ORMCol, struct_info.members.length, allocator=ctx.allocator)
+        relations := make([..] ORMRelation, 0, allocator=ctx.allocator)
 
         Section_Modifiers :: struct {
-            not_null:    bool;
-            unique:      bool;
-            primary_key: bool;
+            not_null:    bool
+            unique:      bool
+            primary_key: bool
         }
-        section_stack := make([..] Section_Modifiers);
-        defer delete(^section_stack);
+        section_stack := make([..] Section_Modifiers)
+        defer delete(&section_stack)
 
-        section_stack << .{};
+        section_stack << .{}
 
-        for^ member in struct_info.members {
-            process_section_tags(member, ^section_stack);
+        for& member in struct_info.members {
+            process_section_tags(member, &section_stack)
 
-            if process_member_if_relation(member, ^relations) {
-                continue;
+            if process_member_if_relation(member, &relations) {
+                continue
             }
 
-            col: ORMCol;
-            col.member_info = member;
-            col.onyx_default = member.default;
-            col.onyx_type = member.type;
-            col.type = onyx_type_to_postgres_type(member.type);
+            col: ORMCol
+            col.member_info = member
+            col.onyx_default = member.default
+            col.onyx_type = member.type
+            col.type = onyx_type_to_postgres_type(member.type)
 
             if !col.type {
-                logf(.Error, "'{}' is not a known type for the Postgres ORM.", col.onyx_type);
-                model_valid = false;
-                continue;
+                logf(.Error, "'{}' is not a known type for the Postgres ORM.", col.onyx_type)
+                model_valid = false
+                continue
             }
 
-            section_modifiers := array.get(section_stack, -1);
-            col.unique      = section_modifiers.unique;
-            col.not_null    = section_modifiers.not_null;
-            col.primary_key = section_modifiers.primary_key;
+            section_modifiers := Array.get(section_stack, -1)
+            col.unique      = section_modifiers.unique
+            col.not_null    = section_modifiers.not_null
+            col.primary_key = section_modifiers.primary_key
 
-            constraints := make([..] constraint, 0, allocator=ctx.allocator);
-            for^ tag in member.tags {
+            constraints := make([..] constraint, 0, allocator=ctx.allocator)
+            for& tag in member.tags {
                 if tag.type == type_expr {
-                    t := *cast(^type_expr) tag.data;
-                    if t == unique      do col.unique      = true;
-                    if t == not_null    do col.not_null    = true;
+                    t := *cast(&type_expr) tag.data
+                    if t == unique      do col.unique      = true
+                    if t == not_null    do col.not_null    = true
 
                     if t == primary_key {
-                        col.primary_key = true;
+                        col.primary_key = true
 
                         if model.primary_col == -1 {
-                            model.primary_col = cols.length;
+                            model.primary_col = cols.length
 
                         } else {
-                            logf(.Error, "In model '{}', multiple fields were marked as primary keys.", type_idx);
-                            model_valid = false;
+                            logf(.Error, "In model '{}', multiple fields were marked as primary keys.", type_idx)
+                            model_valid = false
                         }
                     }
 
                     if t == auto_increment {
                         switch col.onyx_type {
-                            case u16 do col.type = "smallserial";
-                            case u32 do col.type = "serial";
-                            case u64 do col.type = "bigserial";
+                            case u16 do col.type = "smallserial"
+                            case u32 do col.type = "serial"
+                            case u64 do col.type = "bigserial"
 
                             case #default {
-                                logf(.Error, "In model '{}', @auto_increment can only be used on u16, u32, or u64 fields.", type_idx);
-                                model_valid = false;
+                                logf(.Error, "In model '{}', @auto_increment can only be used on u16, u32, or u64 fields.", type_idx)
+                                model_valid = false
                             }
                         }
                     }
                 }
 
                 if tag.type == constraint {
-                    constraints << *cast(^constraint) tag.data;
+                    constraints << *cast(&constraint) tag.data
                 }
 
                 if tag.type == default {
-                    col.default_expr = (cast(^default) tag.data).expr;
+                    col.default_expr = (cast(&default) tag.data).expr
                 }
 
                 if tag.type == foreign_key {
                     if col.foreign != null {
-                        logf(.Error, "In model '{}', '{}' has multiple foreign key declarations.", type_idx, col.name);
-                        model_valid = false;
-                        continue;
+                        logf(.Error, "In model '{}', '{}' has multiple foreign key declarations.", type_idx, col.name)
+                        model_valid = false
+                        continue
                     }
 
-                    col.foreign = cast(^foreign_key) tag.data;
+                    col.foreign = cast(&foreign_key) tag.data
                 }
 
                 if tag.type == column_name {
-                    col.name = (cast(&column_name) tag.data).name;
+                    col.name = (cast(&column_name) tag.data).name
                 }
 
                 if tag.type == postgres.MapColumn {
-                    col.name = (cast(&postgres.MapColumn) tag.data).name;
+                    col.name = (cast(&postgres.MapColumn) tag.data).name
                 }
             }
 
-            col.constraints = constraints;
+            col.constraints = constraints
 
             if !col.name {
-                col.name = string.alloc_copy(member.name, allocator=ctx.allocator)
-                        |> string.to_lowercase();
+                col.name = str.copy(member.name, allocator=ctx.allocator)
+                        |> str.to_lowercase()
             }
 
-            cols << col;
+            cols << col
         }
 
-        model.cols = cols;
-        model.relationships = relations;
+        model.cols = cols
+        model.relationships = relations
 
         if model_valid {
-            ctx.models[type_idx] = model;
+            ctx.models[type_idx] = model
         }
     }
 
     //
     // Second: check relationships on each model.
-    for^ ctx.models.entries {
-        for^ rel in it.value.relationships {
-            related_model := ^ctx.models[rel.target_type];
+    for& ctx.models.entries {
+        for& rel in it.value.relationships {
+            related_model := &ctx.models[rel.target_type]
 
             if related_model == null {
                 logf(.Error, "In model '{}', relationship '{}' is not valid because '{}' is not a model.",
-                    it.value.type_info.name, rel.member_info.name, rel.target_type);
+                    it.value.type_info.name, rel.member_info.name, rel.target_type)
 
-                continue;
+                continue
             }
 
             switch rel.relation_type {
                 case belongs_to {
-                    belongs_to_rel := cast(^belongs_to) rel.relation_data;
+                    belongs_to_rel := cast(&belongs_to) rel.relation_data
 
-                    if related_model.primary_col == -1 && string.empty(belongs_to_rel.foreign_key) {
+                    if related_model.primary_col == -1 && str.empty(belongs_to_rel.foreign_key) {
                         logf(.Error, "In model '{}', belongs_to relationship '{}' is not valid because '{}' does not have a primary key.",
-                            it.value.type_info.name, rel.member_info.name, rel.target_type);
-                        continue;
+                            it.value.type_info.name, rel.member_info.name, rel.target_type)
+                        continue
                     }
 
-                    foreign_key_member := array.first(it.value.cols, [](it.name == belongs_to_rel.local_key));
+                    foreign_key_member := Array.first(it.value.cols, [](it.name == belongs_to_rel.local_key))
                     if !foreign_key_member {
                         logf(.Error, "In model '{}', belongs_to relationship '{}' is not valid because '{}' is not a member of '{}'.",
-                            it.value.type_info.name, rel.member_info.name, belongs_to_rel.local_key, it.value.type_info.name);
-                        continue;
+                            it.value.type_info.name, rel.member_info.name, belongs_to_rel.local_key, it.value.type_info.name)
+                        continue
                     }
                 }
 
                 case has_many {
-                    has_many_rel := cast(^has_many) rel.relation_data;
+                    has_many_rel := cast(&has_many) rel.relation_data
 
-                    if it.value.primary_col == -1 && string.empty(has_many_rel.local_key) {
+                    if it.value.primary_col == -1 && str.empty(has_many_rel.local_key) {
                         logf(.Error, "In model '{}', has_many relationship '{}' is not valid because '{}' does not have a primary key.",
-                            it.value.type_info.name, rel.member_info.name, it.value.type_info.name);
-                        continue;
+                            it.value.type_info.name, rel.member_info.name, it.value.type_info.name)
+                        continue
                     }
                 }
 
                 case has_one {
-                    has_one_rel := cast(^has_one) rel.relation_data;
+                    has_one_rel := cast(&has_one) rel.relation_data
 
-                    if it.value.primary_col == -1 && string.empty(has_one_rel.local_key) {
+                    if it.value.primary_col == -1 && str.empty(has_one_rel.local_key) {
                         logf(.Error, "In model '{}', has_one relationship '{}' is not valid because '{}' does not have a primary key.",
-                            it.value.type_info.name, rel.member_info.name, it.value.type_info.name);
-                        continue;
+                            it.value.type_info.name, rel.member_info.name, it.value.type_info.name)
+                        continue
                     }
                 }
 
                 case many_to_many {
-                    many_to_many_rel := cast(^many_to_many) rel.relation_data;
+                    many_to_many_rel := cast(&many_to_many) rel.relation_data
 
-                    in_between_model := ^ctx.models[many_to_many_rel.mapping_model];
+                    in_between_model := &ctx.models[many_to_many_rel.mapping_model]
 
                     if in_between_model == null {
                         logf(.Error, "In model '{}', many_to_many relationship '{}' is not valid because '{}' is not a model.",
-                            it.value.type_info.name, rel.member_info.name, in_between_model.type_info.name);
-                        continue;
+                            it.value.type_info.name, rel.member_info.name, in_between_model.type_info.name)
+                        continue
                     }
 
                     if related_model.primary_col == -1 {
                         logf(.Error, "In model '{}', many_to_many relationship '{}' is not valid because '{}' does not have a primary key.",
-                            it.value.type_info.name, rel.member_info.name, rel.target_type);
-                        continue;
+                            it.value.type_info.name, rel.member_info.name, rel.target_type)
+                        continue
                     }
 
                     if it.value.primary_col == -1 {
                         logf(.Error, "In model '{}', many_to_many relationship '{}' is not valid because '{}' does not have a primary key.",
-                            it.value.type_info.name, rel.member_info.name, it.value.type_info.name);
-                        continue;
+                            it.value.type_info.name, rel.member_info.name, it.value.type_info.name)
+                        continue
                     }
 
-                    if !array.contains(in_between_model.cols, [](it.name == many_to_many_rel.lookup_key)) {
+                    if !Array.contains(in_between_model.cols, [](it.name == many_to_many_rel.lookup_key)) {
                         logf(.Error, "In model '{}', many_to_many relationship '{}' is not valid because '{}' is not a member of '{}'.",
-                            it.value.type_info.name, rel.member_info.name, many_to_many_rel.lookup_key, in_between_model.type_info.name);
-                        continue;
+                            it.value.type_info.name, rel.member_info.name, many_to_many_rel.lookup_key, in_between_model.type_info.name)
+                        continue
                     }
 
-                    if !array.contains(in_between_model.cols, [](it.name == many_to_many_rel.result_key)) {
+                    if !Array.contains(in_between_model.cols, [](it.name == many_to_many_rel.result_key)) {
                         logf(.Error, "In model '{}', many_to_many relationship '{}' is not valid because '{}' is not a member of '{}'.",
-                            it.value.type_info.name, rel.member_info.name, many_to_many_rel.result_key, in_between_model.type_info.name);
-                        continue;
+                            it.value.type_info.name, rel.member_info.name, many_to_many_rel.result_key, in_between_model.type_info.name)
+                        continue
                     }
                 }
             }
         }
 
-        for^ col in it.value.cols {
+        for& col in it.value.cols {
             if col.foreign != null {
-                foreign_model := ^ctx.models[col.foreign.model];
+                foreign_model := &ctx.models[col.foreign.model]
                 if foreign_model == null {
                     logf(.Error, "In model '{}', foreign key '{}' is not valid because '{}' is not a model.",
-                        it.value.type_info.name, col.name, col.foreign.model);
-                    continue;
+                        it.value.type_info.name, col.name, col.foreign.model)
+                    continue
                 }
 
-                if string.empty(col.foreign.key) {
-                    col.foreign.key = foreign_model.cols[foreign_model.primary_col].name;
+                if str.empty(col.foreign.key) {
+                    col.foreign.key = foreign_model.cols[foreign_model.primary_col].name
                 }
 
-                if array.find(foreign_model.cols, [](it.name == col.foreign.key)) < 0 {
+                if Array.find(foreign_model.cols, [](it.name == col.foreign.key)) < 0 {
                     logf(.Error, "In model '{}', foreign key '{}' is not valid because '{}' is not a column of '{}'.",
-                        it.value.type_info.name, col.name, col.foreign.key, col.foreign.model);
-                    continue;
+                        it.value.type_info.name, col.name, col.foreign.key, col.foreign.model)
+                    continue
                 }
             }
         }
@@ -470,23 +456,23 @@ preload_user_defined_models :: (ctx: ^ORMContext) {
 
 #local
 process_section_tags :: (member, section_stack) => {
-    for^ tag in member.tags {
+    for& tag in member.tags {
         if tag.type == section {
-            s := *cast(^section) tag.data;
+            s := *cast(&section) tag.data
 
-            n := array.alloc_one(section_stack);
-            *n = array.get(*section_stack, -2);
+            n := Array.alloc_one(section_stack)
+            *n = Array.get(*section_stack, -2)
             switch s.type {
-                case unique      do n.unique = true;
-                case not_null    do n.not_null = true;
-                case nullable    do n.not_null = false;
-                case primary_key do n.primary_key = true;
+                case unique      do n.unique = true
+                case not_null    do n.not_null = true
+                case nullable    do n.not_null = false
+                case primary_key do n.primary_key = true
             }
         }
 
         if tag.type == type_expr {
-            if *cast(^type_expr) tag.data == end_section {
-                array.pop(section_stack);
+            if *cast(&type_expr) tag.data == end_section {
+                Array.pop(section_stack)
             }
         }
     }
@@ -494,109 +480,112 @@ process_section_tags :: (member, section_stack) => {
 
 #local
 process_member_if_relation :: (member, relations) => {
-    is_pointer := false;
-    is_array   := false;
+    is_pointer := false
+    is_array   := false
 
-    base_type := void;
+    base_type := void
 
     // Skip members that are pointers.
     // Those are used for relationships.
     if info := get_type_info(member.type); info.kind == .Pointer {
-        is_pointer = true;
-        base_type = (cast(^Type_Info_Pointer) info).to;
+        is_pointer = true
+        base_type = (cast(&Type_Info_Pointer) info).to
     }
 
     // Skip members that are slices of pointers.
     // Those are used for many relationships.
     elseif info.kind == .Slice {
-        s_info := cast(^Type_Info_Slice) info;
+        s_info := cast(&Type_Info_Slice) info
 
         if info := get_type_info(s_info.of); info.kind == .Pointer {
-            is_array = true;
-            base_type = (cast(^Type_Info_Pointer) info).to;
+            is_array = true
+            base_type = (cast(&Type_Info_Pointer) info).to
         }
     }
 
-    if !is_pointer && !is_array do return false;
+    if !is_pointer && !is_array do return false
 
     if member.tags.count == 0 {
-        logf(.Error, "Expected relation specifier on member '{}'.", member.name);
-        return true;
+        logf(.Error, "Expected relation specifier on member '{}'.", member.name)
+        return true
     }
 
-    for^ rel in member.tags {
-        if array.contains(.[has_one, has_many, belongs_to, many_to_many], rel.type) {
-            array.push(relations, .{
+    for& rel in member.tags {
+        if Array.contains(.[has_one, has_many, belongs_to, many_to_many], rel.type) {
+            Array.push(relations, .{
                 rel.type, rel.data, base_type, member
-            });
-            return true;
+            })
+            return true
         }
     }
 
-    logf(.Error, "'{}' does not have valid relation specifier.", member.name);
-    return false;
+    logf(.Error, "'{}' does not have valid relation specifier.", member.name)
+    return false
 }
 
 #local
 Postgres_Table :: struct {
     // These are only the columns that
     // might be used in this library.
-    table_catalog      : str;
-    table_schema       : str;
-    table_name         : str;
-    table_type         : str;
-    is_insertable_into : str;
-    is_typed           : str;
+    table_catalog      : str
+    table_schema       : str
+    table_name         : str
+    table_type         : str
+    is_insertable_into : str
+    is_typed           : str
 }
 
 #local
 Postgres_Table_Column :: struct {
-    table_schema : str;
-    table_name   : str;
-    column_name  : str;
+    table_schema : str
+    table_name   : str
+    column_name  : str
 }
 
 #local
-prepare_models_in_database :: (ctx: ^ORMContext) {
-    existing_tables := ctx->quick_exec(Postgres_Table, "SELECT * FROM information_schema.tables;");
+prepare_models_in_database :: (ctx: &ORMContext) {
+    existing_tables := ctx->quick_exec(Postgres_Table, "SELECT * FROM information_schema.tables;")
 
     // If the model does not exist in the database, create it.
 
-    to_create := make([..] ^ORMModel);
-    defer delete(^to_create);
+    to_create := make([..] &ORMModel)
+    defer delete(&to_create)
 
-    for^ entry in ctx.models.entries {
-        if !array.contains(existing_tables, [t](t.table_name == entry.value.table_name && t.table_schema == entry.value.schema_name)) {
+    for& entry in ctx.models.entries {
+        if !Array.contains(existing_tables, [t](t.table_name == entry.value.table_name && t.table_schema == entry.value.schema_name)) {
 
-            to_create << ^entry.value;
+            to_create << &entry.value
         }
     }
 
     while to_create.length > 0 {
-        removed_one := false;
-        for iter.as_iter(^to_create) {
+        removed_one := false
+        for Iterator.from(&to_create) {
             if create_table_for_model(ctx, it) {
-                #remove;
-                removed_one = true;
+                #remove
+                removed_one = true
             }
         }
 
         if !removed_one {
-            logf(.Error, "Failed to create tables: {}", iter.as_iter(to_create) |> iter.map(x => x.table_name) |> iter.collect());
-            return;
+            Iterator.from(to_create)
+            |> Iterator.map(x => x.table_name)
+            |> Iterator.collect()
+            |> logf(.Error, "Failed to create tables: {}", _)
+            return
         }
     }
 
     // Ensure all of the columns are present.
-    for^ entry in ctx.models.entries {
+    for& entry in ctx.models.entries {
         columns := ctx->quick_exec(Postgres_Table_Column,
             core.tprintf("SELECT * FROM information_schema.columns WHERE table_schema='{}' AND table_name='{}'",
-                entry.value.schema_name, entry.value.table_name));
+                entry.value.schema_name, entry.value.table_name))
 
-        for^ col in entry.value.cols {
-           if !array.contains(columns, [](it.column_name == col.name)) {
-               if !add_column_to_model(ctx, ^entry.value, col) {
-                   logf(.Error, "Failed to add column '{}'.", col.name);
+        for& col in entry.value.cols {
+           if !Array.contains(columns, [](it.column_name == col.name)) {
+               if !add_column_to_model(ctx, &entry.value, col) {
+                   logf(.Error, "Failed to add column '{}'.", col.name)
                }
            }
         }
@@ -604,116 +593,116 @@ prepare_models_in_database :: (ctx: ^ORMContext) {
 }
 
 #local
-create_table_for_model :: (ctx: ^ORMContext, model: ^ORMModel) -> bool {
-    log(.Info, "PG-ORM", tprintf("Creating {}.{}", model.schema_name, model.table_name));
+create_table_for_model :: (ctx: &ORMContext, model: &ORMModel) -> bool {
+    log(.Info, "PG-ORM", tprintf("Creating {}.{}", model.schema_name, model.table_name))
 
-    create_writer, create_command := io.string_builder();
-    defer delete(create_command);
+    create_writer, create_command := io.string_builder()
+    defer delete(create_command)
 
-    io.write(^create_writer, "CREATE TABLE \"{}\".\"{}\" (", model.schema_name, model.table_name);
+    io.write(&create_writer, "CREATE TABLE \"{}\".\"{}\" (", model.schema_name, model.table_name)
 
-    for^ col in model.cols {
-        if !#first do io.write(^create_writer, ", ");
+    for& col in model.cols {
+        if !#first do io.write(&create_writer, ", ")
 
-        io.write(^create_writer, "{} {}", col.name, col.type);
+        io.write(&create_writer, "{} {}", col.name, col.type)
 
         if col.onyx_default != null {
-            buffer: [256] u8; 
-            out := conv.format_va(buffer, "{'d}", .[.{col.onyx_default, col.onyx_type}]);
-            io.write(^create_writer, " DEFAULT {}", out);
+            buffer: [256] u8
+            out := conv.format_va(buffer, "{'d}", .[.{col.onyx_default, col.onyx_type}])
+            io.write(&create_writer, " DEFAULT {}", out)
 
-        } elseif !string.empty(col.default_expr) {
-            io.write(^create_writer, " DEFAULT {}", col.default_expr);
+        } elseif !str.empty(col.default_expr) {
+            io.write(&create_writer, " DEFAULT {}", col.default_expr)
         }
 
-        if col.primary_key do io.write(^create_writer, " PRIMARY KEY");
-        if col.unique      do io.write(^create_writer, " UNIQUE");
-        if col.not_null    do io.write(^create_writer, " NOT NULL");
+        if col.primary_key do io.write(&create_writer, " PRIMARY KEY")
+        if col.unique      do io.write(&create_writer, " UNIQUE")
+        if col.not_null    do io.write(&create_writer, " NOT NULL")
 
         for col.constraints {
             if it.name.length > 0 {
-                io.write(^create_writer, " CONSTRAINT \"{}\"", it.name);
+                io.write(&create_writer, " CONSTRAINT \"{}\"", it.name)
             }
 
-            io.write(^create_writer, " CHECK ({})", it.cond);
+            io.write(&create_writer, " CHECK ({})", it.cond)
         }
 
         if col.foreign != null {
-            foreign_model := ^ctx.models[col.foreign.model];
+            foreign_model := &ctx.models[col.foreign.model]
             
-            io.write(^create_writer, " REFERENCES \"{}\".\"{}\" ({})",
-                foreign_model.schema_name, foreign_model.table_name, col.foreign.key);
+            io.write(&create_writer, " REFERENCES \"{}\".\"{}\" ({})",
+                foreign_model.schema_name, foreign_model.table_name, col.foreign.key)
 
             switch col.foreign.on_delete {
-                case .Restrict    do io.write(^create_writer, " ON DELETE RESTRICT");
-                case .Cascade     do io.write(^create_writer, " ON DELETE CASCADE");
-                case .Set_Null    do io.write(^create_writer, " ON DELETE SET NULL");
-                case .Set_Default do io.write(^create_writer, " ON DELETE SET DEFAULT");
+                case .Restrict    do io.write(&create_writer, " ON DELETE RESTRICT")
+                case .Cascade     do io.write(&create_writer, " ON DELETE CASCADE")
+                case .Set_Null    do io.write(&create_writer, " ON DELETE SET NULL")
+                case .Set_Default do io.write(&create_writer, " ON DELETE SET DEFAULT")
             }
 
             switch col.foreign.on_update {
-                case .Restrict    do io.write(^create_writer, " ON UPDATE RESTRICT");
-                case .Cascade     do io.write(^create_writer, " ON UPDATE CASCADE");
-                case .Set_Null    do io.write(^create_writer, " ON UPDATE SET NULL");
-                case .Set_Default do io.write(^create_writer, " ON UPDATE SET DEFAULT");
+                case .Restrict    do io.write(&create_writer, " ON UPDATE RESTRICT")
+                case .Cascade     do io.write(&create_writer, " ON UPDATE CASCADE")
+                case .Set_Null    do io.write(&create_writer, " ON UPDATE SET NULL")
+                case .Set_Default do io.write(&create_writer, " ON UPDATE SET DEFAULT")
             }
         }
     } 
 
-    io.write(^create_writer, ");");
+    io.write(&create_writer, ");")
 
-    res := ctx->exec_log(string.as_str(create_command))?;
-    defer res->clear();
+    res := ctx->exec_log(str.as_str(create_command))?
+    defer res->clear()
     
-    return res->status() == .Command_Ok;
+    return res->status() == .Command_Ok
 }
 
 #local
-add_column_to_model :: (ctx: ^ORMContext, model: ^ORMModel, col: ^ORMCol) -> bool {
-    add_writer, add_command := io.string_builder();
-    defer delete(add_command);
+add_column_to_model :: (ctx: &ORMContext, model: &ORMModel, col: &ORMCol) -> bool {
+    add_writer, add_command := io.string_builder()
+    defer delete(add_command)
 
-    io.write(^add_writer, "ALTER TABLE \"{}\".\"{}\" ADD COLUMN \"{}\" {}",
-        model.schema_name, model.table_name, col.name, col.type);
+    io.write(&add_writer, "ALTER TABLE \"{}\".\"{}\" ADD COLUMN \"{}\" {}",
+        model.schema_name, model.table_name, col.name, col.type)
 
     if col.onyx_default != null {
-        buffer: [256] u8; 
-        out := conv.format_va(buffer, "{'d}", .[.{col.onyx_default, col.onyx_type}]);
-        io.write(^add_writer, " DEFAULT {}", out);
+        buffer: [256] u8
+        out := conv.format_va(buffer, "{'d}", .[.{col.onyx_default, col.onyx_type}])
+        io.write(&add_writer, " DEFAULT {}", out)
 
-    } elseif !string.empty(col.default_expr) {
-        io.write(^add_writer, " DEFAULT {}", col.default_expr);
+    } elseif !str.empty(col.default_expr) {
+        io.write(&add_writer, " DEFAULT {}", col.default_expr)
     }
 
-    if col.unique      do io.write(^add_writer, " UNIQUE");
-    if col.not_null    do io.write(^add_writer, " NOT NULL");
+    if col.unique      do io.write(&add_writer, " UNIQUE")
+    if col.not_null    do io.write(&add_writer, " NOT NULL")
 
     // @CopyPaste from above
     if col.foreign != null {
-        foreign_model := ^ctx.models[col.foreign.model];
+        foreign_model := &ctx.models[col.foreign.model]
         
-        io.write(^add_writer, " REFERENCES \"{}\".\"{}\" ({})",
-            foreign_model.schema_name, foreign_model.table_name, col.foreign.key);
+        io.write(&add_writer, " REFERENCES \"{}\".\"{}\" ({})",
+            foreign_model.schema_name, foreign_model.table_name, col.foreign.key)
 
         switch col.foreign.on_delete {
-            case .Restrict    do io.write(^add_writer, " ON DELETE RESTRICT");
-            case .Cascade     do io.write(^add_writer, " ON DELETE CASCADE");
-            case .Set_Null    do io.write(^add_writer, " ON DELETE SET NULL");
-            case .Set_Default do io.write(^add_writer, " ON DELETE SET DEFAULT");
+            case .Restrict    do io.write(&add_writer, " ON DELETE RESTRICT")
+            case .Cascade     do io.write(&add_writer, " ON DELETE CASCADE")
+            case .Set_Null    do io.write(&add_writer, " ON DELETE SET NULL")
+            case .Set_Default do io.write(&add_writer, " ON DELETE SET DEFAULT")
         }
 
         switch col.foreign.on_update {
-            case .Restrict    do io.write(^add_writer, " ON UPDATE RESTRICT");
-            case .Cascade     do io.write(^add_writer, " ON UPDATE CASCADE");
-            case .Set_Null    do io.write(^add_writer, " ON UPDATE SET NULL");
-            case .Set_Default do io.write(^add_writer, " ON UPDATE SET DEFAULT");
+            case .Restrict    do io.write(&add_writer, " ON UPDATE RESTRICT")
+            case .Cascade     do io.write(&add_writer, " ON UPDATE CASCADE")
+            case .Set_Null    do io.write(&add_writer, " ON UPDATE SET NULL")
+            case .Set_Default do io.write(&add_writer, " ON UPDATE SET DEFAULT")
         }
     }
 
-    io.write(^add_writer, ";");
+    io.write(&add_writer, ";")
 
-    res := ctx->exec_log(string.as_str(add_command))?;
-    defer res->clear();
+    res := ctx->exec_log(str.as_str(add_command))?
+    defer res->clear()
 
-    return res->status() == .Command_Ok;
+    return res->status() == .Command_Ok
 }
