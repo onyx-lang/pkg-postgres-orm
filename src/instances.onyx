@@ -33,7 +33,7 @@ lookup_or_create_instances :: (ctx: &ORMContext, type: type_expr, res: &postgres
     // This is technically a [..] &type, but I am avoiding
     // making this a polymorphic procedure, because the body
     // would be the exact same for every polymorphic version.
-    result := make([..] rawptr, res.rows, ctx.allocator)
+    result := make([..] rawptr, res.rows, context.temp_allocator)
 
     // Have to add one to model.primary_col here because col_nums
     // is 1-indexed and model column numbers are 0-indexed.

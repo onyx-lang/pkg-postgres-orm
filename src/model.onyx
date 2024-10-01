@@ -72,7 +72,6 @@ internal_add :: (ctx: &ORMContext, data: any) -> rawptr {
     if res->status() == .Tuples_Ok {
         if model.primary_col >= 0 {
             instances := lookup_or_create_instances(ctx, data.type, &res)
-            defer delete(&instances)
 
             if instances.count == 0 do return null
             return instances[0]
