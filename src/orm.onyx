@@ -117,6 +117,8 @@ create :: (
     ctx.thread_state = make(typeof ctx.thread_state, allocator)
     sync.mutex_init(&ctx.thread_state_mutex)
 
+    preload_user_defined_models(ctx)
+
     return ctx
 }
 
@@ -167,8 +169,10 @@ ORMContext.get_conn :: (ctx: &ORMContext) -> ? postgres.Connection {
 }
 
 ORMContext.get_state :: (ctx: &ORMContext) -> &ORMState {
-    state := ctx.thread_state->get_ptr(context.thread_id)
-    if state do return state
+    sync.critical_section(&ctx.thread_state_mutex) {
+        state := ctx.thread_state->get_ptr(context.thread_id)
+        if state do return #from_proc state
+    }
 
     new_state: ORMState
     new_state._conn = .{}
@@ -177,16 +181,16 @@ ORMContext.get_state :: (ctx: &ORMContext) -> &ORMState {
 
     sync.critical_section(&ctx.thread_state_mutex) {
         ctx.thread_state->put(context.thread_id, new_state)
+        return #from_proc ctx.thread_state->get_ptr(context.thread_id)
     }
 
-    return ctx.thread_state->get_ptr(context.thread_id)
+    return null
 }
 
 
 /// Finds all models defined in the program and ensures that a table is created for each of them.
 /// This should be called once at the beginning of the program.
 ORMContext.auto_migrate :: (ctx: &ORMContext) -> bool {
-    preload_user_defined_models(ctx)
     prepare_models_in_database(ctx)
 
     return true
