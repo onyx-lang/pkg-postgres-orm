@@ -102,7 +102,7 @@ ORMContext.exec_params_log :: (ctx: &ORMContext, stmt: str, params: [] any) -> ?
 
     for RECONNECTION_MAX_ATTEMPTS {
         res := ctx->get_conn()?->execParams(stmt, params)
-        if status := res->status(); status == .Tuples_Ok && status == .Command_Ok {
+        if status := res->status(); status == .Tuples_Ok || status == .Command_Ok {
             return res
         }
 
