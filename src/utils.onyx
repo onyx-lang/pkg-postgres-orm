@@ -8,6 +8,8 @@ use runtime.info {
     Type_Info_Pointer
 }
 
+RECONNECTION_MAX_ATTEMPTS :: 3
+
 #package
 is_zero_value :: (z: any) -> bool {
     switch z.type {
@@ -81,13 +83,16 @@ ORMContext.exec_log :: (ctx: &ORMContext, stmt: str) -> ? postgres.Result {
         log(.Info, "PG-ORM", stmt)
     }
 
-    res := ctx->get_conn()?->exec(stmt)
-    if status := res->status(); status != .Tuples_Ok && status != .Command_Ok {
+    for RECONNECTION_MAX_ATTEMPTS {
+        res := ctx->get_conn()?->exec(stmt)
+        if status := res->status(); status == .Tuples_Ok || status == .Command_Ok {
+            return res
+        }
+
         log(.Error, "PG-ORM", res->error_message())
-        return .None
     }
 
-    return res
+    return .None
 }
 
 ORMContext.exec_params_log :: (ctx: &ORMContext, stmt: str, params: [] any) -> ? postgres.Result {
@@ -95,13 +100,16 @@ ORMContext.exec_params_log :: (ctx: &ORMContext, stmt: str, params: [] any) -> ?
         log(.Info, "PG-ORM", stmt)
     }
 
-    res := ctx->get_conn()?->execParams(stmt, params)
-    if status := res->status(); status != .Tuples_Ok && status != .Command_Ok {
+    for RECONNECTION_MAX_ATTEMPTS {
+        res := ctx->get_conn()?->execParams(stmt, params)
+        if status := res->status(); status == .Tuples_Ok && status == .Command_Ok {
+            return res
+        }
+
         log(.Error, "PG-ORM", res->error_message())
-        return .None
     }
     
-    return res
+    return .None
 }
 
 #package
