@@ -36,7 +36,7 @@ parse_binary :: (b: &Binary, s: str, a: Allocator) -> bool {
         case '0' .. '9' => cast(i32) (c - '0')
         case 'A' .. 'F' => cast(i32) (c - 'A' + 10)
         case 'a' .. 'f' => cast(i32) (c - 'a' + 10)
-        case #default   => 0
+        case _          => 0
     }
 }
 
@@ -78,7 +78,7 @@ onyx_type_to_postgres_type :: (type_: type_expr) -> str {
 
         case Binary do return "bytea"
 
-        case #default {
+        case _ {
             info := get_type_info(type)
             switch info.kind {
                 case .Enum {

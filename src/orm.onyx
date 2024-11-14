@@ -293,7 +293,7 @@ preload_user_defined_models :: (ctx: &ORMContext) {
                             case u32 do col.type = "serial"
                             case u64 do col.type = "bigserial"
 
-                            case #default {
+                            case _ {
                                 logf(.Error, "In model '{}', @auto_increment can only be used on u16, u32, or u64 fields.", type_idx)
                                 model_valid = false
                             }
